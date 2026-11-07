@@ -134,6 +134,7 @@ const NLM_LANG_PACKS = {
   function selectElementCleanly(target) {
     if (!target) return false;
     try {
+      try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
       target.focus?.();
       try {
         const rect = target.getBoundingClientRect();
@@ -146,6 +147,7 @@ const NLM_LANG_PACKS = {
         target.dispatchEvent(new MouseEvent("mouseup", opts));
       } catch (e) {}
       target.click();
+      try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
       return true;
     } catch (e) {
       try { target.click(); return true; } catch (err) { return false; }
@@ -545,31 +547,30 @@ const NLM_LANG_PACKS = {
   function fillTextareaRockSolid(ta, val) {
     if (!ta) return false;
     try {
+      // Ensure no whole-page text selection / blue highlight
+      try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
+
       ta.focus?.();
       ta.click?.();
       ta.value = "";
 
+      // Native property setter ensures Angular/React/MatInput detects change cleanly
       try {
-        ta.select?.();
-        ta.setSelectionRange?.(0, 0);
-        document.execCommand("selectAll", false, null);
-        document.execCommand("insertText", false, val);
-      } catch (e) {}
-
-      // Always ensure native value setter runs if execCommand didn't populate full text
-      if (normalizeText(ta.value) !== normalizeText(val)) {
-        try {
-          const proto = window.HTMLTextAreaElement.prototype;
-          const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-          if (setter) {
-            setter.call(ta, val);
-          } else {
-            ta.value = val;
-          }
-        } catch (e) {
+        const proto = window.HTMLTextAreaElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        if (setter) {
+          setter.call(ta, val);
+        } else {
           ta.value = val;
         }
+      } catch (e) {
+        ta.value = val;
       }
+
+      // Keep selection safely inside the textarea only (cursor at end), never on document
+      try {
+        ta.setSelectionRange?.(val.length, val.length);
+      } catch (e) {}
 
       const opts = { bubbles: true, composed: true, cancelable: true };
       try {
@@ -580,9 +581,13 @@ const NLM_LANG_PACKS = {
       ta.dispatchEvent(new KeyboardEvent("keydown", { ...opts, key: " " }));
       ta.dispatchEvent(new KeyboardEvent("keyup", { ...opts, key: " " }));
 
+      // Clean up any stray selection ranges so screen never turns blue
+      try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
+
       return (ta.value || "").trim().length > 0;
     } catch (err) {
       ta.value = val;
+      try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
       return (ta.value || "").trim().length > 0;
     }
   }

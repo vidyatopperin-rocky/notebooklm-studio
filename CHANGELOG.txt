@@ -1,3 +1,5 @@
+v7.7.1 (7 Nov 2026) - Blue screen selection highlight fix: content.js se document.execCommand('selectAll') hata diya aur window.getSelection().removeAllRanges() add kiya taaki screen neeli na ho. Auto-batch process interval 8s se badha kar 15s kar diya.
+
 v7.7.0 (7 Nov 2026) - GitHub Pages live support: manifest.json aur background.js mein https://*.github.io/* add kiya taaki dashboard bina local server ke online GitHub Pages se live chal sake.
 
 v7.6.1 (7 Nov 2026) - Rename/download ka code extension (content.js) se bhi poora delete. Ab kahin nahi hai. NotebookLM page par baaki flows load check hua.

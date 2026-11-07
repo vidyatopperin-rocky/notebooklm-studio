@@ -643,9 +643,9 @@ let lastSingleClickTime = 0;
 
 window.sendSingleShort = async function (num) {
   const now = Date.now();
-  if (now - lastSingleClickTime < 8000) {
-    const waitSec = Math.ceil((8000 - (now - lastSingleClickTime)) / 1000);
-    updateGlobalStatus(`⏳ Kripya ${waitSec}s intezar karein... NotebookLM ko process hone mein 8s ka gap chahiye.`, "ready");
+  if (now - lastSingleClickTime < 15000) {
+    const waitSec = Math.ceil((15000 - (now - lastSingleClickTime)) / 1000);
+    updateGlobalStatus(`⏳ Kripya ${waitSec}s intezar karein... NotebookLM ko process hone mein 15s ka gap chahiye.`, "ready");
     return;
   }
   const item = allShorts.find((s) => s.number === num);
@@ -1447,7 +1447,7 @@ async function startAutoBatch(opts) {
     for (const outId of todo) {
       if (batchStopRequested) break;
       if (outId !== todo[0]) {
-        for (let s = 8; s > 0; s--) {
+        for (let s = 15; s > 0; s--) {
           if (batchStopRequested) break;
           updateGlobalStatus(`P${item.number}: agla output (${OUTPUT_LABEL[outId] || outId}) ${s}s mein...`, "ready", true);
           await sleep(1000);
@@ -1515,9 +1515,9 @@ async function startAutoBatch(opts) {
       }
 
       if (i < pendingShorts.length - 1 && !batchStopRequested) {
-        for (let s = 8; s > 0; s--) {
+        for (let s = 15; s > 0; s--) {
           if (batchStopRequested) break;
-          updateGlobalStatus(`${statusAction} Agla prompt ${s}s mein aayega... (8s process interval)`, "ready", true);
+          updateGlobalStatus(`${statusAction} Agla prompt ${s}s mein aayega... (15s process interval)`, "ready", true);
           await sleep(1000);
         }
       } else {
