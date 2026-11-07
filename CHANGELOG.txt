@@ -1,3 +1,5 @@
+v7.7.2 (7 Nov 2026) - Smart dynamic intervals: Audio outputs ke liye 25 seconds ka safe gap (NotebookLM audio lag/processing ke liye) aur Video/other outputs ke liye 15 seconds ka gap set kiya. Single click aur auto-batch dono par dynamic interval apply hota hai.
+
 v7.7.1 (7 Nov 2026) - Blue screen selection highlight fix: content.js se document.execCommand('selectAll') hata diya aur window.getSelection().removeAllRanges() add kiya taaki screen neeli na ho. Auto-batch process interval 8s se badha kar 15s kar diya.
 
 v7.7.0 (7 Nov 2026) - GitHub Pages live support: manifest.json aur background.js mein https://*.github.io/* add kiya taaki dashboard bina local server ke online GitHub Pages se live chal sake.

@@ -166,6 +166,20 @@ function todoOutputs(item) {
   const done = doneOutputsOf(item);
   return outputsOf(item).filter((o) => !done.includes(o));
 }
+function isAudioOutput(outId) {
+  if (!outId) return false;
+  const s = String(outId).toLowerCase();
+  return s === "audio" || s.startsWith("audio_") || s.includes("audio");
+}
+function isAudioItem(item) {
+  if (!item) return false;
+  if (typeOf(item) === "audio") return true;
+  const todos = todoOutputs(item);
+  if (todos.some(isAudioOutput)) return true;
+  const outs = outputsOf(item);
+  if (outs.some(isAudioOutput)) return true;
+  return false;
+}
 function markOutputDone(num, outId) {
   const item = allShorts.find((s) => s.number === num);
   if (!item) return;
@@ -642,14 +656,18 @@ function initBridgeHeartbeat() {
 let lastSingleClickTime = 0;
 
 window.sendSingleShort = async function (num) {
-  const now = Date.now();
-  if (now - lastSingleClickTime < 15000) {
-    const waitSec = Math.ceil((15000 - (now - lastSingleClickTime)) / 1000);
-    updateGlobalStatus(`⏳ Kripya ${waitSec}s intezar karein... NotebookLM ko process hone mein 15s ka gap chahiye.`, "ready");
-    return;
-  }
   const item = allShorts.find((s) => s.number === num);
   if (!item) return;
+
+  const isAudio = isAudioItem(item);
+  const requiredGapMs = isAudio ? 25000 : 15000;
+  const requiredGapSec = isAudio ? 25 : 15;
+  const now = Date.now();
+  if (now - lastSingleClickTime < requiredGapMs) {
+    const waitSec = Math.ceil((requiredGapMs - (now - lastSingleClickTime)) / 1000);
+    updateGlobalStatus(`⏳ Kripya ${waitSec}s intezar karein... NotebookLM ko ${isAudio ? "Audio" : "Video"} process hone mein ${requiredGapSec}s ka gap chahiye.`, "ready");
+    return;
+  }
   if (!confirm(`Prompt ${item.label || num} bhejna hai?\n\nBanega: ${optsSummary(item)}\n\nSahi hai to OK dabao.`)) return;
   lastSingleClickTime = now;
 
@@ -1443,13 +1461,17 @@ async function startAutoBatch(opts) {
     let res = null;
     let failedOutput = null;
 
+    let lastSentOutput = null;
+
     // one prompt can carry several Studio outputs (audio, video, mind map...): one command each, in order
     for (const outId of todo) {
       if (batchStopRequested) break;
       if (outId !== todo[0]) {
-        for (let s = 15; s > 0; s--) {
+        const prevWasAudio = isAudioOutput(lastSentOutput);
+        const delaySec = prevWasAudio ? 25 : 15;
+        for (let s = delaySec; s > 0; s--) {
           if (batchStopRequested) break;
-          updateGlobalStatus(`P${item.number}: agla output (${OUTPUT_LABEL[outId] || outId}) ${s}s mein...`, "ready", true);
+          updateGlobalStatus(`P${item.number}: agla output (${OUTPUT_LABEL[outId] || outId}) ${s}s mein... (${prevWasAudio ? "Audio 25s" : "Video 15s"} interval)`, "ready", true);
           await sleep(1000);
         }
       }
@@ -1473,6 +1495,7 @@ async function startAutoBatch(opts) {
         await sleep(4000);
       }
       if (res && res.success) {
+        lastSentOutput = outId;
         markOutputDone(item.number, outId);
         addLog(`✓ P${item.number} · ${OUTPUT_LABEL[outId] || outId} bhej diya${res.confirmed === false ? " (confirmation nahi mila - Studio mein check karein)" : ""}`, res.confirmed === false ? "error" : "success");
         continue;
@@ -1515,9 +1538,11 @@ async function startAutoBatch(opts) {
       }
 
       if (i < pendingShorts.length - 1 && !batchStopRequested) {
-        for (let s = 15; s > 0; s--) {
+        const wasAudio = isAudioOutput(lastSentOutput) || isAudioItem(item);
+        const delaySec = wasAudio ? 25 : 15;
+        for (let s = delaySec; s > 0; s--) {
           if (batchStopRequested) break;
-          updateGlobalStatus(`${statusAction} Agla prompt ${s}s mein aayega... (15s process interval)`, "ready", true);
+          updateGlobalStatus(`${statusAction} Agla prompt ${s}s mein aayega... (${wasAudio ? "Audio 25s" : "Video 15s"} process interval)`, "ready", true);
           await sleep(1000);
         }
       } else {
