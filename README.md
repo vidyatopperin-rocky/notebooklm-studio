@@ -1,15 +1,17 @@
-# NotebookLM Studio Hub (v5.1.0)
+# NotebookLM Studio Hub (v7.7.0)
 
-Ye extension NotebookLM ke Studio outputs ko local dashboard se ek-ek karke generate karwata hai.
-v4.6 mein per-prompt chunav hai: ek prompt par Video + Audio + Mind map + Study guide + FAQ + Notes, jo bhi tick karo.
+**🌐 Live Dashboard URL**: [https://vidyatopperin-rocky.github.io/notebooklm-studio/](https://vidyatopperin-rocky.github.io/notebooklm-studio/)
 
-## 1. Install (Chrome / Edge / Brave)
-1. ZIP ko unzip karein. Jis folder mein `manifest.json` ho, wahi folder use karein.
-2. Chrome mein `chrome://extensions` kholen.
-3. Upar right mein **Developer mode** ON karein.
-4. **Load unpacked** dabayein, aur wahi folder select karein.
-5. Dashboard ke liye `launch_dashboard.bat` double-click karein (ye `http://localhost:8000` kholega). Sidebar mein green "Live Extension • Ready" dikhna chahiye.
-6. Ek alag tab mein apni NotebookLM notebook kholen (sources ke saath).
+Ye extension NotebookLM ke Studio outputs ko web dashboard se ek-ek karke generate karwata hai.
+Ab aapko local Python server chalane ki zaroorat nahi — seedha GitHub Pages par live chalega!
+
+## 1. Install / Setup (Chrome / Edge / Brave)
+1. Chrome mein `chrome://extensions` kholen.
+2. Upar right mein **Developer mode** ON karein.
+3. **Load unpacked** dabayein, aur `g:\notebookLM` folder select karein (ya pehle se loaded hai to extension par **🔄 Reload** icon dabayein).
+4. Ab seedha Live link kholen: [https://vidyatopperin-rocky.github.io/notebooklm-studio/](https://vidyatopperin-rocky.github.io/notebooklm-studio/)
+5. Sidebar mein green **"Live Extension • Ready"** dikhega!
+6. Ek alag tab mein apni NotebookLM notebook kholen (`notebook.google.com`).
 
 ## 2. Kaise chalana hai
 - Har prompt card par checkboxes hain: 🎬 Video, 🎧 Audio, 🧠 Mind map, 📘 Study guide, 📄 Briefing doc, ❓ FAQ, ✍️ Blog post, 🕒 Timeline, 🃏 Flashcards, 📝 Quiz, 🗒️ Note.
