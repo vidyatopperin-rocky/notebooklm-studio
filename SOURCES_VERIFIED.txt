@@ -1,0 +1,7 @@
+VERIFIED SOURCES (fetched/read by Tab, 2026-11-05):
+- support.google.com/gemininotebook/answer/16206563 (fetched): Reports = "Create your own, or choose from FAQ, study guide, briefing document, or an AI suggested report type"; Mind maps; Flashcards or Quizzes; audio overview; video overview; Studio panel three-dots "View custom prompt".
+- support.google.com/gemininotebook/answer/16262519 (search snippet only): "Save a chat response to notes: ... select Save to note."
+- blog.google NotebookLM student features (search snippet + page text): flashcards and quizzes; "Upgraded reports let you create tailored documents, like blog posts, with suggested options."
+- support.google.com/gemininotebook/answer/16212283 (search snippet): Mind Maps appear in Studio panel as a note.
+NOT VERIFIED: Timeline as a built-in report type; Infographic/Slide deck automation (exists in help text but not automated here); exact DOM labels of any of these.
+PRODUCT NAME CAVEAT: the help pages say "Gemini Notebook"; the extension targets notebooklm.google.com / notebook.google.com (both in manifest).

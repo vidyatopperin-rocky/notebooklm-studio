@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NotebookLM Studio Hub - Auto Controller</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo-area">
+        <div class="logo-icon">⚡</div>
+        <div class="logo-text">
+          <h2>NotebookLM</h2>
+          <span>Studio Hub</span>
+        </div>
+      </div>
+
+      <nav class="nav-links">
+        <a href="#all-shorts" class="nav-item active">
+          <span class="icon">📱</span> Prompt Studio
+        </a>
+        
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="quick-status">
+          <span id="sidebar-bridge-dot" class="pulse-dot active-green"></span>
+          <span id="sidebar-bridge-status">Checking Extension...</span>
+        </div>
+        <button id="btn-open-notebooklm" class="btn-primary full-width">
+          <span>🌐</span> Open NotebookLM Tab
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Top Bar -->
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>Prompt Studio</h1>
+          <p>Prompts paste karo → type chuno → ek click mein NotebookLM mein bhejo</p>
+        </div>
+        <div class="topbar-meta">
+          <button id="btn-open-paste" type="button" class="btn-cta">➕ Prompts paste karo</button>
+          <div id="browser-indicator" class="browser-pill-badge">
+            <span id="browser-icon">🌐</span>
+            <span id="browser-name">Detecting Browser...</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- GLOBAL FEEDBACK BANNER -->
+      <div id="control-status-box" class="status-box ready">
+        <span id="status-icon">💡</span>
+        <span id="status-text">Ready. Make sure your NotebookLM tab is open, then click "Send to NotebookLM" on any card!</span>
+      </div>
+
+      <!-- ALL SHORTS CARDS SECTION -->
+      <section id="all-shorts" class="section">
+        <!-- Progress Bar & Filter Header -->
+        <div class="progress-panel">
+          <div class="progress-info">
+            <div>
+              <span class="progress-title">Progress</span>
+              <span id="progress-text" class="progress-count">0 / 0 Completed</span>
+            </div>
+            <div class="progress-actions">
+              <button id="btn-open-add-card" class="btn-action-green">＋ Ek prompt add</button>
+              <details class="more-menu"><summary title="Aur options">⋯</summary><div class="more-pop">
+<button id="btn-export-section" class="btn-secondary">📦 Is section ka backup</button>
+                <button id="btn-import-section-trigger" class="btn-secondary">📥 Section backup jodo</button>
+                <input type="file" id="input-import-section" accept=".json" style="display:none;" />
+                <button id="btn-export-json" class="btn-secondary" title="Prompts ka backup JSON file download karein">📥 Backup download</button>
+                <button id="btn-import-json-trigger" class="btn-secondary" title="Pehle se save kiya JSON backup load karein">📤 Backup load</button>
+                <input type="file" id="input-import-json" accept=".json" style="display:none;" />
+                <button id="btn-reset-progress" class="btn-secondary">↺ Ticks reset</button>
+                <button id="btn-clear-all-cards" class="btn-action-red">🗑️ Sab hatao</button>
+              </div></details>
+            </div>
+          </div>
+          <div class="progress-bar-bg">
+            <div id="progress-fill" class="progress-bar-fill"></div>
+          </div>
+        </div>
+
+        <!-- Filter & Search Row -->
+        <div class="filter-row">
+          <div class="filter-tabs">
+            <button class="filter-btn active" data-filter="all">All (<span id="count-all">0</span>)</button>
+            <button class="filter-btn" data-filter="pending">Pending (<span id="count-pending">0</span>)</button>
+            <button class="filter-btn" data-filter="completed">Completed (<span id="count-completed">0</span>)</button>
+          </div>
+          <input type="text" id="shorts-search-input" class="search-input" placeholder="🔍 Title, number ya prompt ke andar ka shabd..." />
+        </div>
+
+        <!-- Auto-Batch Controller Panel -->
+                <div id="global-picker" class="studio-picker global-picker"></div>
+        <div id="batch-strip" class="batch-strip" style="display:none"></div>
+        <details class="fold-batch"><summary>Auto-Batch: sab prompts ek-ek karke bhejo</summary>
+<div class="batch-control-panel">
+          <div class="batch-header">
+            <div class="batch-title-wrapper">
+              <span class="batch-icon">⚡</span>
+              <div>
+                <h3 class="batch-title">One-Click Auto-Batch Generator</h3>
+                <p class="batch-desc">Ek button dabaiye — har prompt ke beech lagbhag 8 second ka process gap lekar ek-ek karke generate karega jab tak saare complete na ho jayein ya limit na aa jaye.</p>
+              </div>
+            </div>
+            <div id="batch-status-badge" class="batch-status-badge idle">
+              <span class="batch-status-dot"></span>
+              <span id="batch-status-label">Ready</span>
+            </div>
+          </div>
+
+          <div class="batch-actions-bar">
+            <div class="preset-row" style="margin-bottom:8px;">
+              <select id="preset-select" class="text-input" title="Sab prompts par output set lagao; har prompt ke checkboxes se alag-alag bhi badal sakte ho">
+                <option value="">🧩 Preset chuno (sab prompts par lagega)</option>
+                <option value="full_study_pack">📚 Full study pack (audio + video + mind map + study guide + FAQ + timeline + notes)</option>
+                <option value="video_only">🎬 Video only (v4.5 jaisa)</option>
+                <option value="audio_only">🎧 Audio only</option>
+              </select>
+            </div>
+            <button id="btn-start-batch" class="btn-batch-start">
+              <span class="btn-batch-icon">▶</span>
+              <span id="btn-batch-start-text">Start Auto-Batch (Ek-ek karke generate karo)</span>
+            </button>
+            <button id="btn-stop-batch" class="btn-batch-stop" disabled>
+              <span class="btn-batch-icon">⏹</span>
+              <span>Stop Batch</span>
+            </button>
+          </div>
+
+          <div class="batch-options-bar">
+            <span class="batch-option-hint">⚡ Har prompt ke beech lagbhag 8 second process gap rahega • Daily limit aate hi batch ruk jayega aur resume point (agla prompt) save ho jayega</span>
+          </div>
+
+          <!-- v4.5.0: resume state (saved in the extension's chrome.storage.local) -->
+          <div id="resume-banner" class="resume-banner" style="display:none;">
+            <span id="resume-text" class="resume-text"></span>
+            <span class="resume-btns">
+              <button id="btn-resume-now" class="btn-resume-now">▶ Resume now</button>
+              <button id="btn-clear-resume" class="btn-clear-resume">✖ Clear resume point</button>
+            </span>
+          </div>
+
+          <div class="batch-settings-bar">
+            <label class="opt-label"><input type="checkbox" id="opt-focus-tab" checked /> NotebookLM tab ko aage laao jab tak prompt jaa raha ho (recommended - background tab slow hota hai)</label>
+            <label class="opt-label"><input type="checkbox" id="opt-allow-later" /> Limit par 'Generate later' se queue karo (nahi to seedha ruk jao)</label>
+            <label class="opt-label"><input type="checkbox" id="opt-wait-finish" /> Agla prompt bhejne se pehle current generation khatam hone ka wait karo (max 10 min)</label>
+            <label class="opt-label"><input type="checkbox" id="opt-auto-resume" /> Limit reset hone par apne aap resume karo (dashboard tab khula rakhna)</label>
+          </div>
+
+          <div class="log-panel">
+            <div class="log-head">
+              <span>📜 Activity Log (extension mein save hota hai)</span>
+              <button id="btn-clear-log" class="btn-clear-log">Clear log</button>
+              <button id="btn-download-log" class="btn-secondary" title="Poora run log .txt file mein download karein">⬇ Run log (.txt)</button>
+            </div>
+            <div id="status-log" class="status-log"></div>
+          </div>
+        </div>
+</details>
+
+        <!-- PROMPT SPLITTER & BULK PASTE SYSTEM -->
+        <details class="splitter-panel splitter-details" id="paste-details"><summary style="cursor:pointer;font-weight:700;padding:8px 4px">➕ Naye prompts paste karo (yahan dabao)</summary>
+        <div>
+          <div class="splitter-body">
+            <div id="paste-type-box" class="paste-type-box"></div>
+            <textarea id="raw-shorts-paste-area" class="splitter-textarea" placeholder="Yahan apne saare prompts paste kijiye...
+Example format:
+📱 Short 38:
+Universal Indicator — Definition
+Is 1-minute video mein SIRF yeh cover karo:
+...
+
+📱 Short 39:
+Strong vs Weak Acid — Difference
+..."></textarea>
+
+            <div class="splitter-actions-row">
+              <div class="splitter-options">
+                <label class="radio-label">
+                  <input type="radio" name="import-mode" value="append" checked />
+                  <span>Purane ke saath jodo (purane safe rahenge)</span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="import-mode" value="replace-type" />
+                  <span>Sirf is type ke purane prompts hata kar naye daalo</span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="import-mode" value="replace" />
+                  <span>Sab kuch hata kar sirf ye daalo</span>
+                </label>
+              </div>
+
+              <div class="splitter-btns">
+                <button id="btn-auto-split" class="btn-auto-split">
+                  <span class="btn-split-icon">✨</span>
+                  <span>Alag-alag box banao</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        </details>
+
+                <!-- DYNAMIC CARDS CONTAINER -->
+        <div id="shorts-cards-container" class="shorts-cards-grid">
+          <!-- Populated dynamically by app.js -->
+        </div>
+      </section>
+
+      <!-- CUSTOM / MANUAL GENERATOR SECTION -->
+      
+
+      
+    </main>
+  </div>
+
+  <!-- ADD / EDIT PROMPT MODAL -->
+  <div id="modal-card-editor" class="modal-backdrop" style="display:none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-editor-title">➕ Add New Prompt</h3>
+        <button class="modal-close-btn" onclick="closeEditorModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-edit-id" value="" />
+        <div class="form-row">
+          <div class="form-group" style="flex:1;">
+            <label>Point Number</label>
+            <input type="number" id="modal-card-num" placeholder="e.g. 65" min="1" />
+          </div>
+          <div class="form-group" style="flex:3;">
+            <label>Topic / Title</label>
+            <input type="text" id="modal-card-title" placeholder="e.g. Baking Soda Preparation & Uses" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Prompt Text (NotebookLM mein jayega)</label>
+          <textarea id="modal-card-prompt" rows="8" placeholder="Enter complete prompt text here..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeEditorModal()">Cancel</button>
+        <button id="btn-save-modal-card" class="btn-primary" onclick="saveEditorModalCard()">💾 Save Card</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="shorts_data.js?v=5.3.0"></script>
+  <script src="app.js?v=7.6.0"></script>
+</body>
+</html>

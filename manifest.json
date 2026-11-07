@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "NotebookLM Studio Hub",
+  "version": "7.7.0",
+  "description": "Control NotebookLM Audio & Video generation from your web dashboard (local or GitHub Pages).",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "*://notebooklm.google.com/*",
+    "*://notebook.google.com/*",
+    "*://notebooklm.google/*",
+    "*://*.google.com/notebook/*",
+    "*://*.google.com/*/notebook/*",
+    "*://*.google/notebook/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.github.io/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://notebook.google.com/*",
+        "*://notebooklm.google.com/*",
+        "*://notebooklm.google/*",
+        "*://*.google.com/notebook/*",
+        "*://*.google.com/*/notebook/*",
+        "*://*.google/notebook/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ]
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.github.io/*"
+      ],
+      "js": [
+        "dashboard-bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

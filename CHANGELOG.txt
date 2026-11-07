@@ -1,0 +1,119 @@
+v7.7.0 (7 Nov 2026) - GitHub Pages live support: manifest.json aur background.js mein https://*.github.io/* add kiya taaki dashboard bina local server ke online GitHub Pages se live chal sake.
+
+v7.6.1 (7 Nov 2026) - Rename/download ka code extension (content.js) se bhi poora delete. Ab kahin nahi hai. NotebookLM page par baaki flows load check hua.
+
+v7.6.0 (7 Nov 2026) - Rocky ke kehne par Rename & Download poora hata diya: alag page, sidebar link, upar ke rename/download buttons, sab. Dashboard ab sirf prompts paste karna aur NotebookLM mein bhejna hai.
+
+v7.5.2 (7 Nov 2026) - Title ab 'Short 38 - Universal Indicator — Definition' (Short/Episode/Point + number + title) banta hai, aur NotebookLM output ka naam bhi yahi hota hai. Browser mein sample se test hua.
+
+v7.5.1 (7 Nov 2026) - Paste fix: 'Short 38:' ke neeche agli line ka title ('Universal Indicator — Definition') ab title banta hai, aur 'Customised Topic:' ke baad ka text prompt banta hai. Browser mein Rocky ke sample se test hua.
+
+v7.5.0 (7 Nov 2026) - Naya alag page '🏷️ Rename & Download' (sidebar mein). '🔄 Status lo' NotebookLM ke bane outputs padhta hai aur har prompt ke saamne dikhata hai: Ready / Naam lag gaya / Abhi bana nahi. Har row par '🏷️ Naam' aur '⬇️ Naam + Download' (ya sirf '⬇️ Download'), upar 'Sab ready ko naam lagao' aur 'Sab: Naam + Download'. Naam = prompt ka title (Ep N - Title). Real NotebookLM page par scan, rename, aur download-click test hua (extension ke bina, 1 output par). Dashboard<->extension messaging aur multi-output run Rocky ke Chrome mein test nahi hua.
+
+v7.4.1 - Download/naam buttons ab upar seedha dikhte hain (⋯ menu se bahar).
+
+v7.4.0 - Naya button '⬇️ Naam lagao + Download': jinka naam nahi badla unka naam lagata hai aur phir Download karta hai. Real page par rename+download test hua.
+
+v7.3.0 - Outputs ke naam: '🏷️ Outputs ke naam lagao' button. Har bane output ka 'View prompt' padh kar usko 'Ep N - Title' naam deta hai. Real NotebookLM page par test hua (extension ke bina).
+
+v7.2.0 (6 Nov 2026) - REAL NotebookLM test (logged-in account, new notebook): text source added; dry-run option picks verified for Audio (Deep dive/Brief/Critique/Debate + Short/Default), Video Explainer, Slides, Infographic, Quiz, Flashcards, Study guide, Mind map; one real Audio Overview generation started OK. Found: "Long" length exists only for Deep dive (Critique/Debate fall back to Default) -> dashboard now blocks Long unless Format = Deep dive. Dashboard<->extension messaging not testable from the server browser.
+
+v7.1.0 (6 Nov 2026) - Search also looks inside prompt text; up/down arrows on every card to reorder inside a section; "Is section ka backup" + "Section backup jodo" in the menu; Auto-Batch now runs only the section you have open; live progress strip (done/left/currently running). Browser-tested with sample prompts; real NotebookLM test pending.
+
+v7.0.0 (6 Nov 2026) - Full UI redesign: design system (dark navy + saffron), "Prompt Studio" header with one big "Prompts paste karo" button, slim status bar, progress card with a "..." menu for backup/reset/clear, pill filters, sticky section bar with counts, card grid with hover/done/running states, full-width send button, prompt preview that expands on focus, type tag in the All view, sticky sidebar, mobile layout. Browser render only; not re-run on the real NotebookLM page.
+
+v6.3.0 (6 Nov 2026) - UI clean-up: 2-column compact cards, short prompt preview (grows when clicked), empty sections hidden, sticky section bar, paste box hidden behind one orange button, readable dark colours, orange send/paste buttons. Browser render only.
+
+v6.2.0 (6 Nov 2026) - Paste box: big type buttons + that type's own option buttons (Video: Cinematic/Short/Explainer, Audio: format+length, etc.). Paste button stays locked until the required option is chosen. Each prompt now stores its OWN options. Every card shows "Banega: Video -> Explainer" with Type/option dropdowns. Send asks for confirmation showing exactly what will be made. Browser-tested, not re-run on the real NotebookLM page.
+
+v6.1.0 (6 Nov 2026) - Paste box now asks the TYPE first (Video/Audio/.../or auto-detect). Pasted episode lists are split into one box per prompt, only the text after "Customise Prompt:" is kept (headings, [Type:], --- and PART lines are dropped), the final quality-check prompt becomes its own box. New prompts are APPENDED to the chosen type's section (old ones stay); episode numbers are kept as the visible number even when the same numbers exist in another section. Type can be changed per card. Tested with a shortened sample of Rocky's HCF-LCM list in a browser, not his full 34-episode text.
+
+v6.0.0 (6 Nov 2026) - SECTIONS. Every prompt belongs to ONE type (Video/Audio/Mind map/Reports/Slides/Infographic/Data table/Flashcards/Quiz/Note). Mixed prompts pasted together are auto-sorted by keywords (default Video); wrong guess -> "Type badlo" dropdown on the card. Section tabs with counts; click one -> only its prompts + that section's own options (e.g. Audio: format+length). Browser-tested with 7 sample prompts; auto-sort is keyword-based and can be wrong. Not re-run on the real NotebookLM page.
+
+v5.8.0 (6 Nov 2026) - clear layout: step 1 "Kya banana hai?" picker, step 2 "Aapke Prompts" (one big card per prompt: big number circle, title, PROMPT label, coloured left stripe, "Banega: ..." line). Auto-Batch and prompt splitter are collapsed. Browser render with sample prompts only.
+
+v5.7.0 (6 Nov 2026) - removed the floating "Quick Studio" box from the NotebookLM page (Rocky: not needed). The extension now only listens to the dashboard; nothing is drawn on NotebookLM. Syntax-checked; the dashboard->NotebookLM flows are unchanged but not re-run on the real page.
+
+v5.6.1 (6 Nov 2026) - removed the "Shorts Generator" section and the "Custom Prompt" sidebar link (Rocky: not needed). Dashboard is now only: picker + prompt cards. Browser render only.
+
+v5.6.0 (6 Nov 2026) - removed the whole "NotebookLM Tools" section (and its sidebar link) at Rocky's request. "Kya banana hai?" picker is sticky at the top, prompt boxes shorter. Browser render only; the Tools features (research/chat/source/language) are no longer reachable from the dashboard.
+
+v5.5.0 (6 Nov 2026) - ONE global picker above the cards ("Kya banana hai?"): choose output type (Video/Audio/Reports/...) and its options once; it applies to ALL prompts. Per-card pickers removed. Browser render + command check only.
+
+v5.4.1 (6 Nov 2026) - dashboard cleanup: Tools moved below the cards into their own "Tools" page/section (dark, 4 cards: Source, Research, Chat, Language+Diagnose); removed the duplicate global "Output options" panel (options are on each card now); prompt splitter collapsed by default. Seen in a real browser render only.
+
+v5.4.0 (6 Nov 2026) - NotebookLM-style picker on every card: row of type tabs (Video, Audio, Mind map, Reports, Slides, Infographic, Data table, Flashcards, Quiz, Note) -> click one -> its own options below (Video: format; Audio: format+length; Reports: Study guide/Briefing/FAQ/Blog/Timeline/Interactive; Slides, Flashcards, Quiz, Infographic options) -> pick -> output included. Options are saved PER CARD (falls back to the Output options panel defaults). Checked in a real browser render only; the NotebookLM click flows themselves are unchanged from v5.3.
+
+v5.3.1 (6 Nov 2026) - UI cleanup: outputs on each card are grouped by category (Video & Audio / Notes & Reports / Visual / Practice) instead of one mixed list of 33 chips; variants (Deep dive, Brief, Hard, Kawaii...) now live in the Output options dropdowns. Seen in a real browser render only.
+
+v5.3.0 (6 Nov 2026) - NotebookLM features in depth (all labels read on the real page)
+  + Tools panel: Research (Web or Google Drive, Fast research or Deep Research, results imported as sources), Chat settings (Notebook configuration > Configure chat: style Default / Learning guide / Custom text, response length Default / Longer / Shorter).
+  + Output options panel: every option group of Audio (format, length), Video (format), Slides (format, length), Flashcards (cards, difficulty, images), Quiz (questions, difficulty), Infographic (orientation, all 10 styles, detail). Saved in the browser and applied on every Send; the v5.2 variant chips still work and win over the panel.
+  + FIX: the Tools panel text was light-on-white (unreadable); now dark.
+  VERIFIED on the real page: Configure chat (saved Learning guide + Shorter, reopened and read back), Research Fast + Web + import of results, option pick + read back for Audio Deep dive+Long, Slides Detailed+Short, Flashcards Fewer+Easy+Text only, Infographic Landscape+Kawaii+Concise.
+  NOT verified: Deep Research and Drive search, Custom chat style text, Data table has no option groups (description only), Notes and the language list were not re-tested, generating each variant to the end.
+
+v5.2.0 (6 Nov 2026) - options INSIDE each Studio output (labels read on the real NotebookLM page)
+  + Audio: Deep dive / Brief / Critique / Debate. NOTE: Length (Short/Default/Long) only exists for Deep dive, Critique, Debate; Brief hides it.
+  + Video: Cinematic / Short / Explainer (explicit choice skips the Short-only safety lock).
+  + Reports: Interactive, or Document -> Briefing doc / Study guide / Blog post / Create your own (the Document radio is now selected first; before, the templates were never reachable).
+  + Slides: Detailed deck / Presenter slides. Flashcards: Fewer-Easy / More-Hard. Quiz: Easy / Hard. Infographic: Portrait + styles (Sketch note, Scientific, Instructional, Bento grid).
+  + FIX: ensureStudioTabSelected clicked "Collapse studio panel" and hid the whole Studio panel.
+  + FIX: option labels with icon text ("check", "New!") are matched on the real label.
+  VERIFIED on the real page (dry run: options clicked and read back, dialog closed): audio Brief/Debate/Critique, video Cinematic/Explainer/Short, report Interactive/Document, slides Presenter, flashcards More+Hard, quiz Hard, infographic Portrait+Scientific+Detailed.
+  VERIFIED real generation: Study guide (Document template) created from the extension flow.
+  NOT verified: generating each variant to the end, report templates Briefing/Blog/Create-your-own selection read-back, Slides Detailed, Infographic other styles, Data table options, Flashcards/Quiz "Fewer/Easy".
+
+v5.1.0  (real-page fixes on top of v5.0.0; tested on the real NotebookLM page, 2026-11-06)
+-------------------------------------------------------------------------------
+FIXED
+ * Floating box did not appear on Google pages: the box was set with innerHTML, which Trusted Types blocks ("requires 'TrustedHTML' assignment"). Now it goes through a trusted policy (nlmTrusted).
+ * Output language: the real Settings menu item is "Output language" and it opens a dialog with a mat-select (formcontrolname languageOverrideSelected) listing native names (e.g. "हिन्दी", "English"), then Save. setLanguageFlow now opens that dropdown, picks the exact native/English name, and clicks Save. The old code could pick the "language" button of the Web source bar instead.
+VERIFIED ON THE REAL PAGE
+ * Create notebook, text source ("Copied text"), Mind Map, Infographic, output language Hindi and back to English (read back in the dialog), scan/diagnose.
+NOT VERIFIED ON THE REAL PAGE
+ * Audio Overview, Video Overview, Slide deck, Data table, Reports (study guide/briefing/FAQ/blog), Flashcards, Quiz, chat, Save to note, YouTube and website sources.
+
+NotebookLM Studio Hub - CHANGELOG
+
+v4.6.0  (builds on v4.5.0; same layout, same UI, same resume/stop-at-limit logic)
+-------------------------------------------------------------------------------
+NEW
+ * Per-prompt output selection. Every prompt card now has small checkboxes:
+   Video, Audio, Mind map, Study guide, Briefing doc, FAQ, Blog post, Timeline (custom), Flashcards, Quiz, Note (chat answer).
+   Tick what you want for that prompt; the Auto-Batch sends each ticked output, in order.
+ * Presets above the batch button: "Full study pack" (audio + video + mind map + study guide + FAQ + timeline + notes),
+   "Video only (v4.5 jaisa)", "Audio only". A preset is applied to every prompt; change single prompts with their checkboxes.
+ * Cards from v4.5 (no output list) keep sending the video only, exactly as before.
+ * Per-output progress: "P4 · Mind map (5/12)" in the batch badge, and a "✓ sent: ..." line on each card.
+ * Downloadable run log: "⬇ Run log (.txt)" button next to "Clear log" (timestamps, levels, every sent output, settings header).
+ * content.js: new generic Studio flow (generateStudioFlow) for Mind map / Reports / Flashcards / Quiz, and a chat flow
+   (generateNoteFlow) that asks the question in the chat and presses "Save to note" on the new answer.
+ * Every NotebookLM label, aria/selector and Hindi fallback for the new outputs is in the NLM_CONFIG.outputs section at the top of content.js.
+
+RESUME / SAFETY
+ * Stop-at-limit still stops before the next output; the resume point is the prompt, and outputs already sent for that
+   prompt are remembered (doneOutputs on the card), so a resume does not re-send them.
+ * Stop pressed between two outputs of one prompt: the prompt stays pending with its remaining outputs.
+ * A "not found" (label/selector) error is retried up to 3 times like before, then stops the batch (no side effect).
+
+CHANGED
+ * "Generate later" stays off by default (v4.5 behaviour kept).
+ * Dialog "Create your own" is never taken for the Generate button (added to skipButtons).
+
+NOT DONE / CAVEATS (read README.md)
+ * Only tested on a MOCK NotebookLM page in real Chromium. Real NotebookLM labels, its limit wording and its Hindi UI are unknown.
+ * Timeline is NOT a built-in NotebookLM output as far as I could confirm; it runs as a custom report with a timeline instruction.
+ * Infographic, slide deck, data table: not added (not in the batch).
+ * Google's help pages call the product "Gemini Notebook" in places; the extension matches the same notebook URLs as v4.5.
+
+v4.5.0  (fixes on top of v4.4.0)
+-------------------------------------------------------------------------
+ * Resume from prompt N saved in chrome.storage.local (survives reload / browser restart), banner + "Resume now".
+ * Optional auto-resume after the limit resets.
+ * Activity log, prompt backup inside the extension, settings checkboxes.
+ * "Generate later" no longer counted as success by default.
+ * All NotebookLM wording/selectors moved into one NLM_CONFIG block at the top of content.js.
+ * Local dashboard bound to 127.0.0.1 only; wrong-tab bug (dashboard picked as NotebookLM tab) fixed.
+
+5.0.0: + Slide deck / Infographic / Data table outputs; Tools panel (output language, add source, chat, diagnose page); multi-language UI words; preset "Sab kuch".
