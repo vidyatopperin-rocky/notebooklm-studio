@@ -659,13 +659,12 @@ window.sendSingleShort = async function (num) {
   const item = allShorts.find((s) => s.number === num);
   if (!item) return;
 
-  const isAudio = isAudioItem(item);
-  const requiredGapMs = isAudio ? 25000 : 15000;
-  const requiredGapSec = isAudio ? 25 : 15;
+  const requiredGapMs = 30000;
+  const requiredGapSec = 30;
   const now = Date.now();
   if (now - lastSingleClickTime < requiredGapMs) {
     const waitSec = Math.ceil((requiredGapMs - (now - lastSingleClickTime)) / 1000);
-    updateGlobalStatus(`⏳ Kripya ${waitSec}s intezar karein... NotebookLM ko ${isAudio ? "Audio" : "Video"} process hone mein ${requiredGapSec}s ka gap chahiye.`, "ready");
+    updateGlobalStatus(`⏳ Kripya ${waitSec}s intezar karein... NotebookLM ko process hone mein ${requiredGapSec}s ka gap chahiye.`, "ready");
     return;
   }
   if (!confirm(`Prompt ${item.label || num} bhejna hai?\n\nBanega: ${optsSummary(item)}\n\nSahi hai to OK dabao.`)) return;
@@ -1467,11 +1466,10 @@ async function startAutoBatch(opts) {
     for (const outId of todo) {
       if (batchStopRequested) break;
       if (outId !== todo[0]) {
-        const prevWasAudio = isAudioOutput(lastSentOutput);
-        const delaySec = prevWasAudio ? 25 : 15;
+        const delaySec = 30;
         for (let s = delaySec; s > 0; s--) {
           if (batchStopRequested) break;
-          updateGlobalStatus(`P${item.number}: agla output (${OUTPUT_LABEL[outId] || outId}) ${s}s mein... (${prevWasAudio ? "Audio 25s" : "Video 15s"} interval)`, "ready", true);
+          updateGlobalStatus(`P${item.number}: agla output (${OUTPUT_LABEL[outId] || outId}) ${s}s mein... (30s interval)`, "ready", true);
           await sleep(1000);
         }
       }
@@ -1538,11 +1536,10 @@ async function startAutoBatch(opts) {
       }
 
       if (i < pendingShorts.length - 1 && !batchStopRequested) {
-        const wasAudio = isAudioOutput(lastSentOutput) || isAudioItem(item);
-        const delaySec = wasAudio ? 25 : 15;
+        const delaySec = 30;
         for (let s = delaySec; s > 0; s--) {
           if (batchStopRequested) break;
-          updateGlobalStatus(`${statusAction} Agla prompt ${s}s mein aayega... (${wasAudio ? "Audio 25s" : "Video 15s"} process interval)`, "ready", true);
+          updateGlobalStatus(`${statusAction} Agla prompt ${s}s mein aayega... (30s process interval)`, "ready", true);
           await sleep(1000);
         }
       } else {

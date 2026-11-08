@@ -1,3 +1,5 @@
+v7.7.3 (8 Nov 2026) - Video aur Audio dono ke liye 30 seconds ka safe interval set kiya: auto-batch aur single click send dono mein har prompt/output ke baad 30s ka countdown chalega taaki NotebookLM bilkul lag ya freeze na ho.
+
 v7.7.2 (7 Nov 2026) - Smart dynamic intervals: Audio outputs ke liye 25 seconds ka safe gap (NotebookLM audio lag/processing ke liye) aur Video/other outputs ke liye 15 seconds ka gap set kiya. Single click aur auto-batch dono par dynamic interval apply hota hai.
 
 v7.7.1 (7 Nov 2026) - Blue screen selection highlight fix: content.js se document.execCommand('selectAll') hata diya aur window.getSelection().removeAllRanges() add kiya taaki screen neeli na ho. Auto-batch process interval 8s se badha kar 15s kar diya.
