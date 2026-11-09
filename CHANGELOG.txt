@@ -1,3 +1,5 @@
+v7.7.4 (9 Nov 2026) - Chrome & Firefox separation: Chrome ke root manifest.json se 'background.scripts' poora hata diya (Chrome MV3 strictly service_worker allow karta hai). Firefox ke liye alag se 'firefox/' folder bana diya taaki dono browser bina kisi error ke chalein.
+
 v7.7.3 (8 Nov 2026) - Video aur Audio dono ke liye 30 seconds ka safe interval set kiya: auto-batch aur single click send dono mein har prompt/output ke baad 30s ka countdown chalega taaki NotebookLM bilkul lag ya freeze na ho.
 
 v7.7.2 (7 Nov 2026) - Smart dynamic intervals: Audio outputs ke liye 25 seconds ka safe gap (NotebookLM audio lag/processing ke liye) aur Video/other outputs ke liye 15 seconds ka gap set kiya. Single click aur auto-batch dono par dynamic interval apply hota hai.

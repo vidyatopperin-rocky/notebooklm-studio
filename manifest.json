@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NotebookLM Studio Hub",
-  "version": "7.7.3",
+  "version": "7.7.4",
   "description": "Control NotebookLM Audio & Video generation from your web dashboard (local or GitHub Pages).",
   "permissions": [
     "tabs",
@@ -21,10 +21,7 @@
     "https://*.github.io/*"
   ],
   "background": {
-    "service_worker": "background.js",
-    "scripts": [
-      "background.js"
-    ]
+    "service_worker": "background.js"
   },
   "browser_specific_settings": {
     "gecko": {
