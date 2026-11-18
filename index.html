@@ -202,11 +202,26 @@ Strong vs Weak Acid — Difference
               </div>
 
               <div class="splitter-btns">
-                <button id="btn-auto-split" class="btn-auto-split">
-                  <span class="btn-split-icon">✨</span>
-                  <span>Alag-alag box banao</span>
+                <button id="btn-auto-split" class="btn-auto-split" title="Fast local parser (bina internet ke)">
+                  <span class="btn-split-icon">⚡</span>
+                  <span>Local Split</span>
+                </button>
+                <button id="btn-ai-split" class="btn-ai-split" title="Google Gemini AI se perfectly alag-alag karo bina kuch chhore">
+                  <span class="btn-split-icon">🤖</span>
+                  <span>AI Smart Split (Gemini)</span>
                 </button>
               </div>
+            </div>
+
+            <div class="gemini-key-bar" id="gemini-key-bar">
+              <div class="gemini-key-inner">
+                <span class="gemini-key-label">🔑 <b>Gemini API Key:</b></span>
+                <input type="password" id="gemini-api-key-input" class="gemini-key-input" placeholder="Paste Gemini API key (AQ... ya AIza...)" autocomplete="off" />
+                <button type="button" id="btn-save-gemini-key" class="btn-save-key">Save Key</button>
+                <button type="button" id="btn-toggle-key-visibility" class="btn-toggle-key" title="Show/Hide Key">👁️</button>
+                <span id="gemini-key-status" class="gemini-key-status"></span>
+              </div>
+              <div class="gemini-key-hint">💡 Key aapke browser ke <code>localStorage</code> mein safe rehti hai (GitHub ya kisi server par nahi jati). AI Smart Split har prompt ko shuru se ant tak bina truncate kiye alag-alag box banata hai.</div>
             </div>
           </div>
         </div>
@@ -257,6 +272,6 @@ Strong vs Weak Acid — Difference
   </div>
 
   <script src="shorts_data.js?v=5.3.0"></script>
-  <script src="app.js?v=7.7.5"></script>
+  <script src="app.js?v=7.8.0"></script>
 </body>
 </html>

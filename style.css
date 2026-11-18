@@ -1448,3 +1448,109 @@ body[data-sec="all"] .type-badge { display: inline-flex !important; background: 
 .bs-top { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 13px; } .bs-top span { color: var(--muted); } .bs-top em { color: var(--saf); font-style: normal; font-weight: 700; }
 .bs-bar { height: 6px; border-radius: 99px; background: rgba(255,255,255,.07); overflow: hidden; } .bs-bar i { display: block; height: 100%; background: linear-gradient(90deg,var(--ok),#6ee7b7); transition: width .4s; }
 
+/* ===== v7.8.0 AI SMART SPLIT & GEMINI KEY BAR ===== */
+.splitter-btns {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.btn-ai-split {
+  background: linear-gradient(135deg, #6366f1, #9333ea) !important;
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  border: none;
+  border-radius: 8px;
+  padding: 11px 18px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(147, 51, 234, 0.35);
+  transition: all 0.2s ease;
+}
+.btn-ai-split:hover {
+  background: linear-gradient(135deg, #4f46e5, #7e22ce) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(147, 51, 234, 0.45);
+}
+.btn-ai-split:disabled {
+  background: #3a3f55 !important;
+  color: #8d95ad !important;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+.gemini-key-bar {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  font-size: 12px;
+}
+.gemini-key-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.gemini-key-label {
+  color: #e8edf7;
+  font-size: 12px;
+}
+.gemini-key-input {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #ffffff;
+  font-size: 12px;
+  width: 270px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.gemini-key-input:focus {
+  border-color: #9333ea;
+  box-shadow: 0 0 8px rgba(147, 51, 234, 0.3);
+}
+.btn-save-key {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: #e8edf7;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.btn-save-key:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.btn-toggle-key {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.7;
+  padding: 4px;
+}
+.btn-toggle-key:hover {
+  opacity: 1;
+}
+.gemini-key-status {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ok, #34d399);
+}
+.gemini-key-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted, #97a3bd);
+  line-height: 1.4;
+}
+
+

@@ -1,3 +1,9 @@
+v7.8.0 (18 Nov 2026) - AI Smart Split (Gemini 2.5 Flash):
+  1. '🤖 AI Smart Split (Gemini)' button: Google Gemini 2.5 Flash AI integration ke saath prompts ko bina kisi katauti ke shuru se ant tak alag-alag card mein banta hai.
+  2. Full Header & Preamble Verbatim Preservation: 'VidyaTopper Podcast: ...' jaisi series preamble lines aur episode titles prompt ke andar shuru se lekar antim shabdon tak 100% poore aate hain.
+  3. Safe Local Storage: Gemini API key seedha browser ke localStorage mein safe rehti hai; kisi server ya GitHub par kabhi push nahi hoti.
+  4. Dual Split System: Fast offline '⚡ Local Split' aur high-intelligence '🤖 AI Smart Split (Gemini)' dono dashboard par uplabdh hain.
+
 v7.7.5 (18 Nov 2026) - Bulk prompt parser & splitter fix:
   1. Dominant section detector: Jab multiple 'Episode 01..20' hote hain to parser internal 'Point 1:', 'Topic 1:' ya 'Host 1:' par toot kar 20 ke 40 nahi banega; exactly 20 episodes hi rahenge.
   2. Full content preservation: Har episode ka title ('Episode 01: ...') aur preamble header ('VidyaTopper Podcast: ...') prompt ke andar 100% poora bachega, kuch bhi strip/slice nahi hoga.

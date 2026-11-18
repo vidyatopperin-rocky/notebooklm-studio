@@ -810,7 +810,10 @@ function renderPasteChooser() {
   const lab = pasteType === "auto" ? "Mixed: har prompt apne shabdon se type mein jayega" : pasteType ? ((PICK_TYPES.find((p) => p.id === pasteType) || {}).label + " → " + (Object.values(pasteOpts).map((v) => (REPORT_IDS.find((r) => r[0] === v) || [0, v])[1]).join(" · ") || "default")) : "abhi kuch nahi chuna";
   h += `<div class="pc-summary ${need.length ? "bad" : "ok"}">${need.length ? "⚠️ Pehle chuno: " + need.join(", ") : "✅ Sab prompts banenge: <b>" + lab + "</b>"}</div>`;
   box.innerHTML = h;
-  const btn = document.getElementById("btn-auto-split"); if (btn) { btn.disabled = need.length > 0; btn.style.opacity = need.length ? ".45" : "1"; }
+  const btn = document.getElementById("btn-auto-split");
+  const btnAi = document.getElementById("btn-ai-split");
+  if (btn) { btn.disabled = need.length > 0; btn.style.opacity = need.length ? ".45" : "1"; }
+  if (btnAi) { btnAi.disabled = need.length > 0; btnAi.style.opacity = need.length ? ".45" : "1"; }
 }
 window.pasteSetType = function (t) { pasteType = t; pasteOpts = {}; renderPasteChooser(); };
 
@@ -824,12 +827,268 @@ window.pasteSetOpt = function (g, v) {
   if (g.indexOf("Length") === 0 && !longOk(pasteOpts, v)) return; pasteOpts[g] = pasteOpts[g] === v ? undefined : v; if (pasteOpts[g] === undefined) delete pasteOpts[g]; renderPasteChooser(); };
 window.pasteSetOptI = function (mode, gi, oi) { const g = OUT_OPT_GROUPS[mode].groups[gi]; window.pasteSetOpt(g[0], g[1][oi]); };
 
+function sliceEpisodesFromMarkers(rawText, items) {
+  if (!items || !items.length) return [];
+  const located = [];
+  let searchFrom = 0;
+
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    let hIdx = -1;
+    const hText = (it.unique_heading || "").trim();
+
+    if (hText) {
+      hIdx = rawText.indexOf(hText, searchFrom);
+      if (hIdx === -1) {
+        hIdx = rawText.indexOf(hText.slice(0, 30), searchFrom);
+      }
+      if (hIdx === -1) {
+        hIdx = rawText.indexOf(hText);
+      }
+    }
+    located.push({ item: it, hIdx: hIdx !== -1 ? hIdx : searchFrom });
+    if (hIdx !== -1) {
+      searchFrom = hIdx + (hText.length || 1);
+    }
+  }
+
+  // Handle preambles
+  for (let i = 0; i < located.length; i++) {
+    const cur = located[i];
+    const prevBoundary = i > 0 ? (located[i - 1].endIdx || located[i - 1].hIdx) : 0;
+    let startIdx = cur.hIdx;
+
+    if (cur.item.preamble_line && cur.item.preamble_line.trim()) {
+      const pLine = cur.item.preamble_line.trim();
+      const pIdx = rawText.lastIndexOf(pLine, cur.hIdx);
+      if (pIdx !== -1 && pIdx >= prevBoundary) {
+        startIdx = pIdx;
+      }
+    } else {
+      const lookback = rawText.substring(Math.max(prevBoundary, cur.hIdx - 300), cur.hIdx);
+      const lines = lookback.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length > 0) {
+        const last = lines[lines.length - 1];
+        if (last.toLowerCase().includes("vidyatopper") || last.startsWith("#") || last.toLowerCase().includes("podcast")) {
+          const autoP = rawText.lastIndexOf(last, cur.hIdx);
+          if (autoP >= prevBoundary) startIdx = autoP;
+        }
+      }
+    }
+    cur.startIdx = startIdx;
+  }
+
+  const results = [];
+  for (let i = 0; i < located.length; i++) {
+    const cur = located[i];
+    const nextStart = (i + 1 < located.length) ? located[i + 1].startIdx : rawText.length;
+    cur.endIdx = nextStart;
+    const prompt = rawText.substring(cur.startIdx, nextStart).trim();
+    results.push({
+      number: cur.item.number || (i + 1),
+      title: cur.item.title || cur.item.unique_heading || `Item ${i + 1}`,
+      prompt: prompt
+    });
+  }
+  return results;
+}
+
+async function parseWithGemini(rawText, apiKey) {
+  const prompt = `You are an expert prompt-splitting assistant for podcast, audio, and video production.
+The user will provide text containing multiple episodes, shorts, or topics.
+Your job is to identify every single episode or prompt block, its title, and its boundaries.
+
+CRITICAL INSTRUCTIONS:
+1. For each distinct episode/short/prompt:
+   - "number": sequential integer (1, 2, 3...)
+   - "title": a clear, descriptive title for the card (e.g. "Episode 01: Partnership का परिचय और पूरा Roadmap")
+   - "unique_heading": the exact line in the text that uniquely starts this episode (e.g. "Episode 01: Partnership का परिचय और पूरा Roadmap" or "Short 1: ...")
+   - "preamble_line": if this episode has a section header or series preamble line immediately above it (e.g. "VidyaTopper Podcast: Quantitative Aptitude (गणित) Partnership (साझेदारी):"), copy that exact line verbatim. If no preamble line exists, return empty string "".
+2. Return ONLY a valid JSON array of objects.`;
+
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: `${prompt}\n\nHere is the raw text to analyze:\n${rawText}` }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      responseMimeType: "application/json",
+      maxOutputTokens: 8192
+    }
+  };
+
+  const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!resp.ok) {
+    const errData = await resp.json().catch(() => ({}));
+    const msg = errData?.error?.message || `HTTP ${resp.status} ${resp.statusText}`;
+    throw new Error(`Gemini API Error: ${msg}`);
+  }
+
+  const data = await resp.json();
+  const rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!rawJson) throw new Error("Gemini API se koi response nahi mila.");
+
+  const items = JSON.parse(rawJson);
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error("Gemini response valid array nahi tha.");
+  }
+
+  return sliceEpisodesFromMarkers(rawText, items);
+}
+
+async function performAISplit() {
+  const raw = document.getElementById("raw-shorts-paste-area")?.value || "";
+  if (!pasteType) {
+    alert("Pehle upar chuno ki ye prompts kis cheez ke hain (Video / Audio ...).");
+    return;
+  }
+  if (!raw.trim()) {
+    alert("Kripya pehle text box mein apne prompts paste kijiye!");
+    return;
+  }
+
+  let apiKey = (localStorage.getItem("nlm_gemini_api_key") || "").trim();
+  const inputKey = (document.getElementById("gemini-api-key-input")?.value || "").trim();
+  if (!apiKey && inputKey) {
+    apiKey = inputKey;
+    try { localStorage.setItem("nlm_gemini_api_key", apiKey); } catch (e) {}
+  }
+  if (!apiKey) {
+    const keyBar = document.getElementById("gemini-key-bar");
+    if (keyBar) keyBar.scrollIntoView({ behavior: "smooth", block: "center" });
+    document.getElementById("gemini-api-key-input")?.focus();
+    alert("⚠️ Kripya pehle apna Gemini API Key enter kijiye aur 'Save Key' dabaiye!");
+    return;
+  }
+
+  const btnAi = document.getElementById("btn-ai-split");
+  const origBtnHtml = btnAi ? btnAi.innerHTML : "";
+  if (btnAi) {
+    btnAi.disabled = true;
+    btnAi.innerHTML = '<span>⏳</span><span>AI alag kar raha hai...</span>';
+  }
+  updateGlobalStatus("🤖 Gemini 2.5 Flash prompts ko bina kisi katauti ke analyze kar raha hai...", "info");
+
+  try {
+    const parsed = await parseWithGemini(raw, apiKey);
+    if (!parsed || parsed.length === 0) {
+      throw new Error("AI koi valid prompts identify nahi kar paya.");
+    }
+
+    const chosen = pasteType;
+    const lab = chosen === "auto" ? "Mixed (auto)" : (PICK_TYPES.find((p) => p.id === chosen) || {}).label + " → " + (Object.values(pasteOpts).map((v) => (REPORT_IDS.find((r) => r[0] === v) || [0, v])[1]).join(" · ") || "default");
+    const modeInput = document.querySelector('input[name="import-mode"]:checked');
+    const importMode = modeInput ? modeInput.value : "replace";
+    const modeLabel = importMode === "replace"
+      ? "Purane saare hatakar ye naye aayenge"
+      : (importMode === "replace-type" ? "Is type ke purane hatenge" : "Purane ke saath judenge");
+
+    if (!confirm(`🤖 AI ne ${parsed.length} prompts bilkul shuru se ant tak bina kate identify kiye!\n\nSab banenge: ${lab}\nMode: ${modeLabel}\n\nSahi hai? OK dabao.`)) {
+      return;
+    }
+
+    parsed.forEach((p) => {
+      p.label = p.number;
+      p.type = chosen === "auto" ? classifyPrompt((p.title || "") + " " + (p.prompt || "")) : chosen;
+      if (chosen !== "auto") {
+        p.opts = Object.assign({}, pasteOpts);
+        if (chosen === "reports") { delete p.opts.Type; p.report = pasteOpts.Type; }
+      }
+    });
+
+    if (importMode === "replace-type" && chosen !== "auto") {
+      allShorts = allShorts.filter((s) => typeOf(s) !== chosen);
+    } else if (importMode === "replace") {
+      allShorts = [];
+      completedPoints.clear();
+      saveCompletedState();
+    }
+
+    let maxN = allShorts.reduce((a, s) => Math.max(a, s.number), 0);
+    parsed.forEach((p) => { maxN += 1; p.number = maxN; });
+    allShorts = allShorts.concat(parsed);
+
+    const types = Array.from(new Set(parsed.map((p) => p.type)));
+    currentSection = types.length === 1 ? types[0] : "all";
+    try { localStorage.setItem("nlm_section", currentSection); } catch (e) {}
+
+    saveShortsData();
+    renderAllShortsCards();
+
+    const summary = types.map((t) => `${(PICK_TYPES.find((x) => x.id === t) || {}).label}: ${parsed.filter((p) => p.type === t).length}`).join("  ·  ");
+    updateGlobalStatus(`🎉 AI ne ${parsed.length} prompts bina kisi katauti ke boxes mein daal diye: ${summary}`, "success");
+    alert(`🎉 AI Smart Split Kamyab!\n\n${parsed.length} prompts bina kisi katauti ke har box mein shuru se ant tak daal diye gaye hain!\n${summary}`);
+  } catch (err) {
+    console.error("AI Split Error:", err);
+    updateGlobalStatus(`⚠️ AI Split error: ${err.message}`, "error");
+    const fallback = confirm(`⚠️ AI Smart Split mein dikkat aayi: ${err.message}\n\nKya aap Local Splitter (Fast Regex) se try karna chahte hain?`);
+    if (fallback) {
+      document.getElementById("btn-auto-split")?.click();
+    }
+  } finally {
+    if (btnAi) {
+      btnAi.disabled = false;
+      btnAi.innerHTML = origBtnHtml;
+    }
+  }
+}
+
 function setupAutoSplit() {
   const btn = document.getElementById("btn-auto-split");
   if (!btn) return;
   renderPasteChooser();
   const op = document.getElementById("btn-open-paste"); if (op) op.addEventListener("click", () => { const pd = document.getElementById("paste-details"); if (pd) { pd.open = true; pd.scrollIntoView({ behavior: "smooth", block: "start" }); } });
   try { const pd = document.getElementById("paste-details"); if (pd && allShorts.length === 0) pd.open = true; } catch (e) {}
+
+  // Gemini API Key controls
+  const keyInput = document.getElementById("gemini-api-key-input");
+  const keyStatus = document.getElementById("gemini-key-status");
+  const btnSaveKey = document.getElementById("btn-save-gemini-key");
+  const btnToggleKey = document.getElementById("btn-toggle-key-visibility");
+
+  const existingKey = (localStorage.getItem("nlm_gemini_api_key") || "").trim();
+  if (existingKey && keyInput) {
+    keyInput.value = existingKey;
+    if (keyStatus) keyStatus.textContent = "✅ Key Saved (Ready)";
+  }
+
+  if (btnSaveKey) {
+    btnSaveKey.addEventListener("click", () => {
+      const val = (keyInput ? keyInput.value : "").trim();
+      if (!val) {
+        try { localStorage.removeItem("nlm_gemini_api_key"); } catch (e) {}
+        if (keyStatus) keyStatus.textContent = "⚠️ Key removed";
+        alert("Gemini API Key remove kar di gayi hai.");
+      } else {
+        try { localStorage.setItem("nlm_gemini_api_key", val); } catch (e) {}
+        if (keyStatus) keyStatus.textContent = "✅ Key Saved!";
+        alert("✅ Gemini API Key browser mein safely save ho gayi!");
+      }
+    });
+  }
+
+  if (btnToggleKey && keyInput) {
+    btnToggleKey.addEventListener("click", () => {
+      keyInput.type = keyInput.type === "password" ? "text" : "password";
+      btnToggleKey.textContent = keyInput.type === "password" ? "👁️" : "🙈";
+    });
+  }
+
+  const btnAi = document.getElementById("btn-ai-split");
+  if (btnAi) {
+    btnAi.addEventListener("click", performAISplit);
+  }
+
   btn.addEventListener("click", () => {
     const raw = document.getElementById("raw-shorts-paste-area")?.value || "";
     if (!pasteType) { alert("Pehle upar chuno ki ye prompts kis cheez ke hain (Video / Audio ...)."); return; }
