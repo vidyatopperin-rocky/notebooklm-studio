@@ -1,3 +1,8 @@
+v7.8.1 (18 Nov 2026) - 74+ Shorts Massive Batch & Thinking Budget Fix:
+  1. Gemini 2.5 Flash Thinking Budget: 'thinkingBudget: 0' set kiya taaki AI apne output tokens internal thinking mein waste na kare aur 74+ shorts jaise bade batch MAX_TOKENS par na tutein.
+  2. Preamble vs Body Slicing Fix: Bullets (- / *) aur body paragraphs ko ab galti se preamble nahi mana jayega; Short 1 ke points Short 1 mein hi rahenge aur agle short mein shift nahi honge.
+  3. Real verification: Rocky ke 74 shorts ke exact batch par Local Split aur AI Smart Split dono 100% test pass hue.
+
 v7.8.0 (18 Nov 2026) - AI Smart Split (Gemini 2.5 Flash):
   1. '🤖 AI Smart Split (Gemini)' button: Google Gemini 2.5 Flash AI integration ke saath prompts ko bina kisi katauti ke shuru se ant tak alag-alag card mein banta hai.
   2. Full Header & Preamble Verbatim Preservation: 'VidyaTopper Podcast: ...' jaisi series preamble lines aur episode titles prompt ke andar shuru se lekar antim shabdon tak 100% poore aate hain.

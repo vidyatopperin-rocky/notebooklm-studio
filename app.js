@@ -827,6 +827,14 @@ window.pasteSetOpt = function (g, v) {
   if (g.indexOf("Length") === 0 && !longOk(pasteOpts, v)) return; pasteOpts[g] = pasteOpts[g] === v ? undefined : v; if (pasteOpts[g] === undefined) delete pasteOpts[g]; renderPasteChooser(); };
 window.pasteSetOptI = function (mode, gi, oi) { const g = OUT_OPT_GROUPS[mode].groups[gi]; window.pasteSetOpt(g[0], g[1][oi]); };
 
+function isPreambleLine(str) {
+  if (!str || !str.trim()) return false;
+  const trimmed = str.trim();
+  if (/^[ \t]*[-*•\d+.]/m.test(trimmed)) return false;
+  if (/MCQ|Option|Question|Ans|Answer|Trick|Solution/i.test(trimmed)) return false;
+  return /(?:Podcast|Series|Chapter|VidyaTopper|Course)\s*[:\-]/i.test(trimmed) || /^#+\s+/m.test(trimmed);
+}
+
 function sliceEpisodesFromMarkers(rawText, items) {
   if (!items || !items.length) return [];
   const located = [];
@@ -840,7 +848,7 @@ function sliceEpisodesFromMarkers(rawText, items) {
     if (hText) {
       hIdx = rawText.indexOf(hText, searchFrom);
       if (hIdx === -1) {
-        hIdx = rawText.indexOf(hText.slice(0, 30), searchFrom);
+        hIdx = rawText.indexOf(hText.slice(0, 25), searchFrom);
       }
       if (hIdx === -1) {
         hIdx = rawText.indexOf(hText);
@@ -852,26 +860,20 @@ function sliceEpisodesFromMarkers(rawText, items) {
     }
   }
 
-  // Handle preambles
+  // Preambles: only rewind if immediately preceding text is a genuine series/podcast header
   for (let i = 0; i < located.length; i++) {
     const cur = located[i];
     const prevBoundary = i > 0 ? (located[i - 1].endIdx || located[i - 1].hIdx) : 0;
     let startIdx = cur.hIdx;
 
-    if (cur.item.preamble_line && cur.item.preamble_line.trim()) {
-      const pLine = cur.item.preamble_line.trim();
-      const pIdx = rawText.lastIndexOf(pLine, cur.hIdx);
-      if (pIdx !== -1 && pIdx >= prevBoundary) {
-        startIdx = pIdx;
-      }
-    } else {
-      const lookback = rawText.substring(Math.max(prevBoundary, cur.hIdx - 300), cur.hIdx);
-      const lines = lookback.split('\n').map(l => l.trim()).filter(Boolean);
-      if (lines.length > 0) {
-        const last = lines[lines.length - 1];
-        if (last.toLowerCase().includes("vidyatopper") || last.startsWith("#") || last.toLowerCase().includes("podcast")) {
-          const autoP = rawText.lastIndexOf(last, cur.hIdx);
-          if (autoP >= prevBoundary) startIdx = autoP;
+    if (cur.hIdx > prevBoundary) {
+      const inBetween = rawText.substring(prevBoundary, cur.hIdx);
+      const parts = inBetween.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+      if (parts.length > 0) {
+        const lastPart = parts[parts.length - 1];
+        if (isPreambleLine(lastPart)) {
+          const lastIdx = inBetween.lastIndexOf(lastPart);
+          startIdx = prevBoundary + lastIdx;
         }
       }
     }
@@ -894,17 +896,15 @@ function sliceEpisodesFromMarkers(rawText, items) {
 }
 
 async function parseWithGemini(rawText, apiKey) {
-  const prompt = `You are an expert prompt-splitting assistant for podcast, audio, and video production.
-The user will provide text containing multiple episodes, shorts, or topics.
-Your job is to identify every single episode or prompt block, its title, and its boundaries.
-
-CRITICAL INSTRUCTIONS:
-1. For each distinct episode/short/prompt:
-   - "number": sequential integer (1, 2, 3...)
-   - "title": a clear, descriptive title for the card (e.g. "Episode 01: Partnership का परिचय और पूरा Roadmap")
-   - "unique_heading": the exact line in the text that uniquely starts this episode (e.g. "Episode 01: Partnership का परिचय और पूरा Roadmap" or "Short 1: ...")
-   - "preamble_line": if this episode has a section header or series preamble line immediately above it (e.g. "VidyaTopper Podcast: Quantitative Aptitude (गणित) Partnership (साझेदारी):"), copy that exact line verbatim. If no preamble line exists, return empty string "".
-2. Return ONLY a valid JSON array of objects.`;
+  const prompt = `Identify every single short/episode/prompt block in the text.
+Return strictly a valid JSON array of objects:
+[
+  {
+    "number": integer (1..N),
+    "title": "Short X: ... or Episode X: ...",
+    "unique_heading": "the exact text line where this short/episode begins in the text (e.g. '### 📱 Short 1: Chapter का परिचय' or 'Episode 01: ...')"
+  }
+]`;
 
   const body = {
     contents: [
@@ -918,6 +918,7 @@ CRITICAL INSTRUCTIONS:
     generationConfig: {
       temperature: 0.1,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 0 },
       maxOutputTokens: 8192
     }
   };
@@ -1209,20 +1210,28 @@ function parseRawShortsText(text) {
       } else {
         const prevEnd = matches[idx - 1].matchEnd;
         const inBetween = mainText.substring(prevEnd, cur.matchStart);
-        const parts = inBetween.split(/\n\s*\n/);
-        if (parts.length > 1) {
-          const preamble = parts[parts.length - 1];
-          blockStart = cur.matchStart - preamble.length;
+        const parts = inBetween.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+        if (parts.length > 0) {
+          const lastPart = parts[parts.length - 1];
+          if (isPreambleLine(lastPart)) {
+            const lastIdx = inBetween.lastIndexOf(lastPart);
+            blockStart = prevEnd + lastIdx;
+          }
         }
       }
 
       let blockEnd = mainText.length;
       if (next) {
         const inBetween = mainText.substring(cur.matchEnd, next.matchStart);
-        const parts = inBetween.split(/\n\s*\n/);
-        if (parts.length > 1) {
-          const nextPreamble = parts[parts.length - 1];
-          blockEnd = next.matchStart - nextPreamble.length;
+        const parts = inBetween.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+        if (parts.length > 0) {
+          const lastPart = parts[parts.length - 1];
+          if (isPreambleLine(lastPart)) {
+            const lastIdx = inBetween.lastIndexOf(lastPart);
+            blockEnd = cur.matchEnd + lastIdx;
+          } else {
+            blockEnd = next.matchStart;
+          }
         } else {
           blockEnd = next.matchStart;
         }
