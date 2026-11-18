@@ -838,9 +838,12 @@ function setupAutoSplit() {
     if (parsed.length === 0) { alert("⚠️ Koi valid prompt detect nahi ho paya! Har prompt 'Episode 1:' / 'Short 1:' / '---' se alag hona chahiye."); return; }
     const chosen = pasteType;
     const lab = chosen === "auto" ? "Mixed (auto)" : (PICK_TYPES.find((p) => p.id === chosen) || {}).label + " → " + (Object.values(pasteOpts).map((v) => (REPORT_IDS.find((r) => r[0] === v) || [0, v])[1]).join(" · ") || "default");
-    if (!confirm(`${parsed.length} prompts mile.\n\nSab ban jayenge: ${lab}\n\nSahi hai? OK dabao.`)) return;
     const modeInput = document.querySelector('input[name="import-mode"]:checked');
-    const importMode = modeInput ? modeInput.value : "append";
+    const importMode = modeInput ? modeInput.value : "replace";
+    const modeLabel = importMode === "replace"
+      ? "Purane saare hatakar ye naye aayenge"
+      : (importMode === "replace-type" ? "Is type ke purane hatenge" : "Purane ke saath judenge");
+    if (!confirm(`${parsed.length} prompts mile.\n\nSab ban jayenge: ${lab}\n\nMode: ${modeLabel}\n\nSahi hai? OK dabao.`)) return;
     parsed.forEach((p) => {
       p.label = p.number;
       p.type = chosen === "auto" ? classifyPrompt((p.title || "") + " " + (p.prompt || "")) : chosen;
@@ -891,82 +894,123 @@ function parseRawShortsText(text) {
 
   const results = [];
 
-  // Helper to extract clean prompt text from a section block
   function extractPromptFromBlock(block) {
-    // 1. If block contains a code block (``` ... ```), the prompt is inside it!
     const codeMatch = block.match(/```(?:[a-zA-Z0-9_-]+)?\r?\n([\s\S]*?)\r?\n```/);
     if (codeMatch && codeMatch[1].trim().length > 0) {
       return codeMatch[1].trim();
     }
-    // 2. Otherwise, strip the heading line and optional metadata headers (Type:, Category:, etc.)
-    const lines = block.trim().split(/\r?\n/);
-    let bodyLines = lines.slice(1);
-    while (bodyLines.length > 0 && /^(?:Type|Category|Tag|Format|Duration)\s*:/i.test(bodyLines[0].trim())) {
-      bodyLines.shift();
+    const cm = /Customi[sz]ed?[ \t]+(?:Prompt|Topic)[ \t]*:?[ \t]*\**[ \t]*\r?\n?/i.exec(block);
+    if (cm) {
+      return block.substring(cm.index + cm[0].length).replace(/^\s*\*+\s*/, '').trim();
     }
-    const cleanBody = bodyLines.join('\n').trim();
-    return cleanBody.length > 0 ? cleanBody : block.trim();
+    return block.trim();
   }
 
-  // Strategy 1: Section Headings (Episode / Short / Point / Prompt / Topic)
-  // v6.1.0: handles "## 🎧 Episode N: title", "**[Type: ..]**", "**Customise Prompt:**", '---' separators, "# PART n" headings and a final quality-check prompt.
   let mainText = text, tailText = "";
   const finalMark = /\n[ \t]*#+[ \t]*FINAL[ \t]+QUALITY[^\n]*\n/i.exec(text);
-  if (finalMark) { mainText = text.substring(0, finalMark.index); tailText = text.substring(finalMark.index + finalMark[0].length); }
-  const sectionRegex = /(?:^|\n)[ \t]*(?:#+[ \t]*)?(?:[^\w\s]{1,3}[ \t]*)?(?:Episode|Short|Point|Prompt|Topic)[ \t]*#?[ \t]*(\d+)[ \t]*[:\-—][ \t]*([^\r\n]*)/giu;
+  if (finalMark) {
+    mainText = text.substring(0, finalMark.index);
+    tailText = text.substring(finalMark.index + finalMark[0].length);
+  }
+
+  const epRegex = /(?:^|\n)[ \t]*(?:#+[ \t]*)?(?:[^\w\s]{1,3}[ \t]*)?Episode[ \t]*#?[ \t]*(\d+)[ \t]*[:\-—][ \t]*([^\r\n]*)/gi;
+  const shortRegex = /(?:^|\n)[ \t]*(?:#+[ \t]*)?(?:[^\w\s]{1,3}[ \t]*)?Short[ \t]*#?[ \t]*(\d+)[ \t]*[:\-—][ \t]*([^\r\n]*)/gi;
+
+  let epCount = 0; while (epRegex.exec(mainText) !== null) epCount++;
+  let shortCount = 0; while (shortRegex.exec(mainText) !== null) shortCount++;
+
+  let sectionRegex;
+  if (epCount >= 2) {
+    sectionRegex = /(?:^|\n)[ \t]*(?:#+[ \t]*)?(?:[^\w\s]{1,3}[ \t]*)?(Episode)[ \t]*#?[ \t]*(\d+)[ \t]*[:\-—][ \t]*([^\r\n]*)/gi;
+  } else if (shortCount >= 2) {
+    sectionRegex = /(?:^|\n)[ \t]*(?:#+[ \t]*)?(?:[^\w\s]{1,3}[ \t]*)?(Short)[ \t]*#?[ \t]*(\d+)[ \t]*[:\-—][ \t]*([^\r\n]*)/gi;
+  } else {
+    sectionRegex = /(?:^|\n)[ \t]*(?:#+[ \t]*)?(?:[^\w\s]{1,3}[ \t]*)?(Episode|Short|Point|Prompt|Topic)[ \t]*#?[ \t]*(\d+)[ \t]*[:\-—][ \t]*([^\r\n]*)/gi;
+  }
+
   const matches = [];
   let m;
   while ((m = sectionRegex.exec(mainText)) !== null) {
-    matches.push({ index: m.index, num: parseInt(m[1], 10), rawTitle: m[2] ? m[2].trim() : '', kind: (/(Episode|Short|Point|Prompt|Topic)/i.exec(m[0]) || ['', 'Ep'])[1] });
-  }
-  function cleanBlockForCustomise(block) {
-    // cut at separators / next big heading
-    const cut = block.search(/\n[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*(?:\n|$)|\n[ \t]*#{1,2}[ \t]+PART\b/i);
-    let b = cut > 0 ? block.substring(0, cut) : block;
-    const cm = /Customi[sz]ed?[ \t]+(?:Prompt|Topic)[ \t]*:?[ \t]*\**[ \t]*\r?\n?/i.exec(b);
-    if (cm) return b.substring(cm.index + cm[0].length).replace(/^\s*\*+\s*/, '').trim();
-    return null;
+    matches.push({
+      matchStart: m.index,
+      matchEnd: m.index + m[0].length,
+      kind: m[1] || 'Ep',
+      num: parseInt(m[2], 10),
+      rawTitle: m[3] ? m[3].trim() : ''
+    });
   }
 
   if (matches.length > 0) {
-    matches.forEach((item, idx) => {
-      const start = item.index;
-      const end = idx + 1 < matches.length ? matches[idx + 1].index : mainText.length;
-      let block = mainText.substring(start, end).trim();
+    matches.forEach((cur, idx) => {
+      const next = idx + 1 < matches.length ? matches[idx + 1] : null;
+
+      let blockStart = cur.matchStart;
+      if (idx === 0) {
+        blockStart = 0;
+      } else {
+        const prevEnd = matches[idx - 1].matchEnd;
+        const inBetween = mainText.substring(prevEnd, cur.matchStart);
+        const parts = inBetween.split(/\n\s*\n/);
+        if (parts.length > 1) {
+          const preamble = parts[parts.length - 1];
+          blockStart = cur.matchStart - preamble.length;
+        }
+      }
+
+      let blockEnd = mainText.length;
+      if (next) {
+        const inBetween = mainText.substring(cur.matchEnd, next.matchStart);
+        const parts = inBetween.split(/\n\s*\n/);
+        if (parts.length > 1) {
+          const nextPreamble = parts[parts.length - 1];
+          blockEnd = next.matchStart - nextPreamble.length;
+        } else {
+          blockEnd = next.matchStart;
+        }
+      }
+
+      let block = mainText.substring(blockStart, blockEnd).trim();
       if (idx === matches.length - 1) {
         const footerMatch = block.match(/\n\s*#+\s*(?:Final\s+)?Quality[\s-]+Check/i);
         if (footerMatch) block = block.substring(0, footerMatch.index).trim();
       }
-      let rawT = item.rawTitle;
+
+      let rawT = cur.rawTitle;
       if (!rawT || !rawT.replace(/[\s*:—\-]/g, '')) {
-        // v7.5.1: title on the NEXT line ("Short 38:\n Universal Indicator — Definition")
         const nl = block.split(/\r?\n/).slice(1).map((x) => x.trim()).find((x) => x && !/^(?:Customi[sz]ed?\s+(?:Prompt|Topic)|Type|Category)\s*:/i.test(x));
         rawT = nl || '';
       }
       let title = rawT.replace(/^[:—\-\s*]+|[:—\-\s*]+$/g, '').replace(/\s*\[.*?\]\(.*?\)/g, '').trim();
-      const promptText = cleanBlockForCustomise(block) || extractPromptFromBlock(block);
-      if (promptText.length > 0) results.push({ number: item.num, title: (item.kind.replace(/^episode$/i,'Ep') + ' ' + item.num + (title ? ' - ' + title : '')), prompt: promptText });
+      const promptText = extractPromptFromBlock(block);
+
+      const kindLabel = cur.kind.replace(/^episode$/i, 'Episode').replace(/^short$/i, 'Short');
+      const numStr = String(cur.num).padStart(2, '0');
+      if (promptText.length > 0) {
+        results.push({
+          number: cur.num,
+          title: `${kindLabel} ${numStr}${title ? ' - ' + title : ''}`,
+          prompt: promptText
+        });
+      }
     });
+
     if (tailText.trim()) {
-      const t = cleanBlockForCustomise(tailText) || tailText.trim();
+      const t = extractPromptFromBlock(tailText) || tailText.trim();
       const last = results.reduce((a, r) => Math.max(a, r.number), 0);
       if (t) results.push({ number: last + 1, title: "Final Quality Check", prompt: t });
     }
+
     if (results.length > 0) {
       results.sort((a, b) => a.number - b.number);
       return results;
     }
   }
 
-  // Strategy 2: Numbered items (1. Title / 1: Title / 1) Title)
+  // Fallback 1: Numbered items (1. Title / 1: Title)
   const numberedRegex = /(?:^|\n)\s*(?:#+\s*)?(\d+)[\.\)]\s+([^\r\n]+)/g;
   const numMatches = [];
   while ((m = numberedRegex.exec(text)) !== null) {
-    numMatches.push({
-      index: m.index,
-      num: parseInt(m[1], 10),
-      rawTitle: m[2].trim()
-    });
+    numMatches.push({ index: m.index, num: parseInt(m[1], 10), rawTitle: m[2].trim() });
   }
 
   if (numMatches.length > 1) {
@@ -983,14 +1027,13 @@ function parseRawShortsText(text) {
         });
       }
     });
-
     if (results.length > 0) {
       results.sort((a, b) => a.number - b.number);
       return results;
     }
   }
 
-  // Strategy 3: Separated by horizontal rules '---'
+  // Fallback 2: Separated by horizontal rules '---'
   if (text.includes('---')) {
     const parts = text.split(/\r?\n\s*---\s*\r?\n/);
     parts.forEach((part, idx) => {
@@ -1007,21 +1050,6 @@ function parseRawShortsText(text) {
     });
     if (results.length > 0) return results;
   }
-
-  // Strategy 4: Fallback double blank lines
-  const chunks = text.split(/\r?\n\s*\r?\n\s*\r?\n/);
-  chunks.forEach((chunk, idx) => {
-    const trimmed = chunk.trim();
-    if (trimmed.length > 15) {
-      const lines = trimmed.split(/\r?\n/);
-      const title = lines[0].replace(/^#+\s*/, '').trim();
-      results.push({
-        number: idx + 1,
-        title: title.length < 60 ? title : `Prompt ${idx + 1}`,
-        prompt: trimmed
-      });
-    }
-  });
 
   return results;
 }

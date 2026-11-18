@@ -1,3 +1,8 @@
+v7.7.5 (18 Nov 2026) - Bulk prompt parser & splitter fix:
+  1. Dominant section detector: Jab multiple 'Episode 01..20' hote hain to parser internal 'Point 1:', 'Topic 1:' ya 'Host 1:' par toot kar 20 ke 40 nahi banega; exactly 20 episodes hi rahenge.
+  2. Full content preservation: Har episode ka title ('Episode 01: ...') aur preamble header ('VidyaTopper Podcast: ...') prompt ke andar 100% poora bachega, kuch bhi strip/slice nahi hoga.
+  3. Default paste mode ab 'replace' hai taaki naya batch paste karne par purane ke aage judkar double (40) na ho.
+
 v7.7.4 (9 Nov 2026) - Chrome & Firefox separation: Chrome ke root manifest.json se 'background.scripts' poora hata diya (Chrome MV3 strictly service_worker allow karta hai). Firefox ke liye alag se 'firefox/' folder bana diya taaki dono browser bina kisi error ke chalein.
 
 v7.7.3 (8 Nov 2026) - Video aur Audio dono ke liye 30 seconds ka safe interval set kiya: auto-batch aur single click send dono mein har prompt/output ke baad 30s ka countdown chalega taaki NotebookLM bilkul lag ya freeze na ho.
