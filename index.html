@@ -136,6 +136,9 @@
               <span class="btn-batch-icon">⏹</span>
               <span>Stop Batch</span>
             </button>
+            <button id="btn-run-rename-download" type="button" class="btn-secondary" title="Studio ke ready outputs ka prompt match karke Rename + Download karo">
+              <span>📥 Rename & Download Ready</span>
+            </button>
           </div>
 
           <div class="batch-options-bar">
@@ -156,6 +159,22 @@
             <label class="opt-label"><input type="checkbox" id="opt-allow-later" /> Limit par 'Generate later' se queue karo (nahi to seedha ruk jao)</label>
             <label class="opt-label"><input type="checkbox" id="opt-wait-finish" /> Agla prompt bhejne se pehle current generation khatam hone ka wait karo (max 10 min)</label>
             <label class="opt-label"><input type="checkbox" id="opt-auto-resume" /> Limit reset hone par apne aap resume karo (dashboard tab khula rakhna)</label>
+            <label class="opt-label"><input type="checkbox" id="opt-auto-download-30m" checked /> Batch complete / Limit hit hone ke theek <b>30 min baad</b> apne aap Rename + Download shuru karo</label>
+            <label class="opt-label"><input type="checkbox" id="opt-rename-in-nlm" checked /> Download se pehle NotebookLM Studio mein bhi Rename karo (3-dots → View prompt → Rename)</label>
+          </div>
+
+          <div class="dl-folder-bar">
+            <label for="dl-folder-name">📁 <b>Separate Download Folder</b> (Downloads ke andar — har browser/profile ka apna naam rakho):</label>
+            <input type="text" id="dl-folder-name" class="dl-folder-input" placeholder="e.g. Firefox_Profile_1 ya Physics_Ch1" />
+            <span id="dl-folder-preview" class="dl-folder-preview"></span>
+          </div>
+
+          <div id="dl-timer-banner" class="resume-banner" style="display:none;">
+            <span id="dl-timer-text" class="resume-text"></span>
+            <span class="resume-btns">
+              <button id="btn-dl-now" type="button" class="btn-resume-now">📥 Abhi Download Chalao</button>
+              <button id="btn-dl-cancel" type="button" class="btn-clear-resume">✖ Cancel Timer</button>
+            </span>
           </div>
 
           <div class="log-panel">
@@ -214,14 +233,31 @@ Strong vs Weak Acid — Difference
             </div>
 
             <div class="gemini-key-bar" id="gemini-key-bar">
-              <div class="gemini-key-inner">
+              <div class="gemini-key-inner" style="margin-bottom:8px;">
+                <span class="gemini-key-label">🧠 <b>AI Provider:</b></span>
+                <select id="ai-provider-select" class="text-input" style="max-width:260px;">
+                  <option value="omniroute">🚀 OmniRoute (Local PC - Free)</option>
+                  <option value="gemini">✨ Gemini 2.5 Flash (API Key)</option>
+                </select>
+                <span id="ai-provider-status" class="gemini-key-status"></span>
+              </div>
+              <div id="omniroute-config-row" class="gemini-key-inner" style="flex-wrap:wrap; margin-bottom:8px;">
+                <span class="gemini-key-label">🔗 <b>OmniRoute:</b></span>
+                <input type="text" id="omni-url-input" class="gemini-key-input" value="http://127.0.0.1:20128/v1" placeholder="http://127.0.0.1:20128/v1" />
+                <input type="text" id="omni-model-input" class="gemini-key-input" placeholder="Model (e.g. auto / free model)" list="omni-models-list" />
+                <datalist id="omni-models-list"></datalist>
+                <input type="password" id="omni-key-input" class="gemini-key-input" placeholder="Optional API Key (agar set ho)" autocomplete="off" style="max-width:180px;" />
+                <button type="button" id="btn-omni-models" class="btn-save-key">🔄 Load Models</button>
+                <button type="button" id="btn-save-omni" class="btn-save-key">Save OmniRoute</button>
+              </div>
+              <div id="gemini-config-row" class="gemini-key-inner">
                 <span class="gemini-key-label">🔑 <b>Gemini API Key:</b></span>
                 <input type="password" id="gemini-api-key-input" class="gemini-key-input" placeholder="Paste Gemini API key (AQ... ya AIza...)" autocomplete="off" />
                 <button type="button" id="btn-save-gemini-key" class="btn-save-key">Save Key</button>
                 <button type="button" id="btn-toggle-key-visibility" class="btn-toggle-key" title="Show/Hide Key">👁️</button>
                 <span id="gemini-key-status" class="gemini-key-status"></span>
               </div>
-              <div class="gemini-key-hint">💡 Key aapke browser ke <code>localStorage</code> mein safe rehti hai (GitHub ya kisi server par nahi jati). AI Smart Split har prompt ko shuru se ant tak bina truncate kiye alag-alag box banata hai.</div>
+              <div class="gemini-key-hint">💡 OmniRoute aapke PC par local chalta hai (free) aur Gemini API key browser ke <code>localStorage</code> mein safe rehti hai.</div>
             </div>
           </div>
         </div>
@@ -272,6 +308,6 @@ Strong vs Weak Acid — Difference
   </div>
 
   <script src="shorts_data.js?v=5.3.0"></script>
-  <script src="app.js?v=7.8.1"></script>
+  <script src="app.js?v=7.9.0"></script>
 </body>
 </html>

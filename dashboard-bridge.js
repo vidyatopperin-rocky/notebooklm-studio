@@ -9,7 +9,7 @@ const hasChrome = typeof chrome !== "undefined" && chrome.runtime;
 
 const handledRequests = new Map();
 const publishedRequests = new Set();
-const REQUEST_DEDUPE_MS = 60000;
+const REQUEST_DEDUPE_MS = 180000;
 
 async function sendRuntimeMessage(msg) {
   if (hasBrowser && typeof browser.runtime.sendMessage === "function") {
@@ -42,12 +42,16 @@ async function sendRuntimeMessage(msg) {
   return { success: false, error: "Extension runtime not found in this browser" };
 }
 
-// v4.6.0: state/alarm requests are answered by the background worker (chrome.storage.local + alarms)
+// v4.6.0+: state/alarm/download/AI requests are answered by the background worker
 const STATE_TYPES = {
   NLM_STATE_GET: "nlmState.get",
   NLM_STATE_PATCH: "nlmState.patch",
   NLM_ALARM_SET: "nlmAlarm.set",
-  NLM_ALARM_CLEAR: "nlmAlarm.clear"
+  NLM_ALARM_CLEAR: "nlmAlarm.clear",
+  NLM_DOWNLOAD_ALARM_SET: "nlmDownloadAlarm.set",
+  NLM_DOWNLOAD_ALARM_CLEAR: "nlmDownloadAlarm.clear",
+  NLM_DOWNLOAD_PREPARE: "nlmDownload.prepare",
+  NLM_AI_FETCH: "nlmAi.fetch"
 };
 
 function friendlyRuntimeError(res) {
@@ -68,7 +72,19 @@ async function handleIncomingCommand(payload) {
   }
 
   const outgoing = isStateReq
-    ? { action: STATE_TYPES[payload.type], patch: payload.patch, log: payload.log, backup: payload.backup, when: payload.when }
+    ? {
+        action: STATE_TYPES[payload.type],
+        patch: payload.patch,
+        log: payload.log,
+        backup: payload.backup,
+        when: payload.when,
+        folder: payload.folder,
+        filename: payload.filename,
+        url: payload.url,
+        method: payload.method,
+        headers: payload.headers,
+        body: payload.body
+      }
     : { action: "forwardToNotebookLM", payload: payload };
 
   const request = sendRuntimeMessage(outgoing).then(friendlyRuntimeError).catch((err) => ({ success: false, error: err.message || "Failed to communicate with extension" }));

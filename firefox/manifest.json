@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "NotebookLM Studio Hub",
-  "version": "7.8.1",
+  "version": "7.9.0",
   "description": "Control NotebookLM Audio & Video generation from your web dashboard (local or GitHub Pages).",
   "permissions": [
     "tabs",
     "scripting",
     "storage",
-    "alarms"
+    "alarms",
+    "downloads"
   ],
   "host_permissions": [
     "*://notebooklm.google.com/*",

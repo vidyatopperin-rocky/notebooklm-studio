@@ -552,11 +552,24 @@ const NLM_LANG_PACKS = {
 
       ta.focus?.();
       ta.click?.();
+
+      if (ta.isContentEditable) {
+        ta.textContent = val;
+        const opts = { bubbles: true, composed: true, cancelable: true };
+        try {
+          ta.dispatchEvent(new InputEvent("beforeinput", { ...opts, data: val, inputType: "insertText" }));
+        } catch (e) {}
+        ta.dispatchEvent(new Event("input", opts));
+        ta.dispatchEvent(new Event("change", opts));
+        try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
+        return (ta.textContent || "").trim().length > 0;
+      }
+
       ta.value = "";
 
       // Native property setter ensures Angular/React/MatInput detects change cleanly
       try {
-        const proto = window.HTMLTextAreaElement.prototype;
+        const proto = ta.tagName === "INPUT" ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
         if (setter) {
           setter.call(ta, val);
@@ -586,9 +599,10 @@ const NLM_LANG_PACKS = {
 
       return (ta.value || "").trim().length > 0;
     } catch (err) {
-      ta.value = val;
+      if (ta.isContentEditable) ta.textContent = val;
+      else ta.value = val;
       try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
-      return (ta.value || "").trim().length > 0;
+      return ((ta.isContentEditable ? ta.textContent : ta.value) || "").trim().length > 0;
     }
   }
 
@@ -1073,8 +1087,11 @@ const NLM_LANG_PACKS = {
   }
 
   function findVisibleTextarea(dialog) {
-    for (const ta of (dialog || document).querySelectorAll("textarea, [contenteditable='true'], input[type='text']")) {
-      if (isVisible(ta)) return ta;
+    const scope = dialog || document;
+    for (const sel of ["textarea", "[contenteditable='true']", "input[type='text']"]) {
+      for (const ta of scope.querySelectorAll(sel)) {
+        if (isVisible(ta)) return ta;
+      }
     }
     return null;
   }
@@ -1084,20 +1101,31 @@ const NLM_LANG_PACKS = {
   // Real labels read on the live NotebookLM page (Pro test account, 6 Nov 2026). Matching is EXACT on the first text line of a
   // radio / toggle / chip, so "Short" never hits a long description text.
   function _firstLine(el) {
-    const lines = (el.innerText || el.textContent || "").split(/\n/).map((s) => s.trim()).filter(Boolean);
+    let raw = "";
+    try {
+      const clone = el.cloneNode(true);
+      clone.querySelectorAll("mat-icon, .material-icons, .material-symbols-outlined, .material-symbols-rounded").forEach((ic) => ic.remove());
+      raw = clone.innerText || clone.textContent || "";
+    } catch (e) {
+      raw = el.innerText || el.textContent || "";
+    }
+    const lines = raw.split(/\n/).map((s) => s.trim()).filter(Boolean);
     // skip Material icon ligature lines (check, crop_16_9, ...) and the "New!" badge that sit before the real label
     const real = lines.find((s) => !/^(check|checkmark|edit|new!?|[a-z0-9]+(_[a-z0-9]+)+)$/i.test(s));
     return (real || lines[0] || "").toLowerCase();
   }
   function findChoice(dialog, label) {
     const want = String(label || "").trim().toLowerCase();
+    const wantClean = want.replace(/\s*\(default\)\s*$/i, "").trim();
     if (!want) return null;
     let best = null;
     const sel = "mat-radio-button, [role='radio'], [role='option'], mat-button-toggle, button, [role='button'], mat-chip, label, div[tabindex]";
     for (const el of dialog.querySelectorAll(sel)) {
       if (!isVisible(el)) continue;
       const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
-      if (_firstLine(el) === want || aria === want) {
+      const first = _firstLine(el);
+      const firstClean = first.replace(/\s*\(default\)\s*$/i, "").trim();
+      if (first === want || aria === want || (wantClean && (firstClean === wantClean || aria === wantClean))) {
         const rank = (el.tagName === "MAT-RADIO-BUTTON" || el.getAttribute("role") === "radio") ? 0 : (el.tagName === "BUTTON" ? 1 : 2);
         if (!best || rank < best.rank) best = { el, rank };
       }
@@ -1221,6 +1249,51 @@ const NLM_LANG_PACKS = {
     } finally { isBusy = false; }
   }
 
+  function isGeneratedArtifactCard(el) {
+    if (!el) return false;
+    const card = el.closest(".artifact-card, .studio-item, mat-card, [class*='artifact' i]");
+    const scope = card || el;
+    const txt = (scope.innerText || scope.textContent || "").toLowerCase();
+    if (txt.includes("may take a while") || _has(txt, NLM_CONFIG.words.generating)) return true;
+    // Already-created Studio artifacts have menu/action icons like more_vert, play_arrow, download, delete
+    if (card && !el.closest("button[aria-label*='customize' i], button[aria-label*='edit' i]")) {
+      const hasArtifactActions = Array.from(card.querySelectorAll("button, mat-icon")).some((b) => {
+        const t = (b.innerText || b.textContent || "").trim().toLowerCase();
+        const a = (b.getAttribute("aria-label") || "").trim().toLowerCase();
+        return t === "more_vert" || t === "play_arrow" || t === "download" || a.includes("more options") || a.includes("delete");
+      });
+      if (hasArtifactActions) return true;
+    }
+    return false;
+  }
+
+  function findStudioTile(studio, words, excludeWords) {
+    const scope = studio || document;
+    let best = null;
+    for (const el of scope.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
+      if (!isVisible(el)) continue;
+      const text = (el.innerText || el.textContent || "").trim().toLowerCase();
+      const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+      if (text.length > 300 && aria.length === 0) continue;
+      if (excludeWords && (_has(text, excludeWords) || _has(aria, excludeWords))) continue;
+      if (!_has(text, words) && !_has(aria, words)) continue;
+      if (text.includes("may take a while") || _has(text, NLM_CONFIG.words.generating)) continue;
+
+      const isArtifact = isGeneratedArtifactCard(el);
+      const isCustomize = _has(text, NLM_CONFIG.words.customize) || _has(aria, NLM_CONFIG.words.customize) || _has(aria, NLM_CONFIG.words.edit);
+      const exactMatch = words.some((w) => text === w || aria === w);
+      let rank = 10;
+      if (!isArtifact && isCustomize) rank = 0;
+      else if (!isArtifact && exactMatch) rank = 1;
+      else if (!isArtifact && text.length <= 45) rank = 2;
+      else if (!isArtifact) rank = 3;
+      else rank = 20;
+
+      if (!best || rank < best.rank) best = { el, rank };
+    }
+    return best ? best.el : null;
+  }
+
   async function generateStudioFlow(outputId, customTopic = null, opts = {}) {
     if (isBusy) {
       return { success: false, busy: true, error: "Busy: previous command is still running in NotebookLM tab. Please wait and retry." };
@@ -1237,15 +1310,30 @@ const NLM_LANG_PACKS = {
         return { success: false, quotaExhausted: true, error: pre.error };
       }
 
-      const studio = findStudioContainer() || document;
-      const tile = findClickableByWords(studio, cfg.tile, cfg.noExclude ? null : OUT.excludeTile, 300);
-      if (!tile) {
-        return { success: false, error: `"${cfg.label}" card not found in the Studio panel (labels/selectors: NLM_CONFIG.outputs).` };
+      if (outputId === "video_choice") {
+        const opened = await openVideoOverviewDialog();
+        if (!opened) {
+          return { success: false, error: "Video Overview dialog could not be opened. Make sure a Notebook with sources is open in NotebookLM." };
+        }
+        await pause(350);
+      } else if (outputId === "audio_choice") {
+        const opened = await openAudioOverviewDialog();
+        if (!opened) {
+          return { success: false, error: "Audio Overview dialog could not be opened. Make sure a Notebook with sources is open in NotebookLM." };
+        }
+        await pause(350);
+      } else {
+        const studio = findStudioContainer() || document;
+        const tile = findStudioTile(studio, cfg.tile, cfg.noExclude ? null : OUT.excludeTile);
+        if (!tile) {
+          return { success: false, error: `"${cfg.label}" card not found in the Studio panel (labels/selectors: NLM_CONFIG.outputs).` };
+        }
+        selectElementCleanly(tile);
+        await pause(1200);
       }
-      selectElementCleanly(tile);
-      await pause(1200);
 
-      let dialog = getActiveDialog();
+      let dialog = outputId === "video_choice" ? (getActiveVideoDialog() || getActiveDialog())
+        : (outputId === "audio_choice" ? (getActiveAudioDialog() || getActiveDialog()) : getActiveDialog());
       if (dialog && cfg.docFormat) {
         const docEl = findChoice(dialog, "Document");
         if (docEl) { selectElementCleanly(docEl); await pause(900); dialog = getActiveDialog() || dialog; }
@@ -1263,10 +1351,11 @@ const NLM_LANG_PACKS = {
       let choiceReport = null;
       if (dialog && Array.isArray(opts.choices) && opts.choices.length) {
         choiceReport = await applyChoices(dialog, opts.choices);
-        dialog = getActiveDialog() || dialog;
-        if (choiceReport.missing.length && choiceReport.missing.includes(opts.choices[0])) {
+        dialog = (outputId === "video_choice" ? getActiveVideoDialog() : null) || getActiveDialog() || dialog;
+        const hardMissing = choiceReport.missing.filter((m) => !/\(default\)|^default$/i.test(String(m).trim()));
+        if (hardMissing.length) {
           await closeActiveDialogIfOpen();
-          return { success: false, error: `Option(s) not found in the ${cfg.label} dialog: ${choiceReport.missing.join(", ")}.`, data: choiceReport };
+          return { success: false, error: `Option(s) not found in the ${cfg.label} dialog: ${hardMissing.join(", ")}.`, data: choiceReport };
         }
       }
       if (dialog && opts.dryRun) {
@@ -1282,11 +1371,21 @@ const NLM_LANG_PACKS = {
           return { success: false, quotaExhausted: true, error: q.error };
         }
         const text = cfg.instruction || topic;
-        if (text) {
+        if (outputId === "video_choice" && text) {
+          const filled = await fillVideoTopicAsync(text);
+          if (!filled || !verifyVideoTopicFilled(getActiveVideoDialog() || dialog, text)) {
+            await closeActiveDialogIfOpen();
+            return {
+              success: false,
+              error: "🔒 PROMPT SAFETY BLOCK: Prompt text box ('Describe your own') mein fill nahi ho saka. Empty video generation ROK diya gaya hai!"
+            };
+          }
+        } else if (text) {
           const ta = findVisibleTextarea(dialog);
           if (ta) { fillTextareaRockSolid(ta, text); await pause(250); }
         }
-        const clicked = await clickGenerateWithWait(getActiveDialog, dialog, opts);
+        const getDlg = outputId === "video_choice" ? getActiveVideoDialog : (outputId === "audio_choice" ? getActiveAudioDialog : getActiveDialog);
+        const clicked = await clickGenerateWithWait(getDlg, dialog, opts);
         if (clicked && clicked.quotaExhausted) {
           await closeActiveDialogIfOpen();
           return { success: false, quotaExhausted: true, error: clicked.error };
@@ -1295,7 +1394,7 @@ const NLM_LANG_PACKS = {
           await closeActiveDialogIfOpen();
           return { success: false, error: `Generate button could not be clicked for ${cfg.label}.` };
         }
-        const conf = await confirmGenerationStarted(getActiveDialog);
+        const conf = await confirmGenerationStarted(getDlg);
         if (conf.quotaExhausted) {
           await closeActiveDialogIfOpen();
           return { success: false, quotaExhausted: true, error: conf.error };
@@ -1351,6 +1450,174 @@ const NLM_LANG_PACKS = {
     }
   }
 
+
+  // ======================= v7.9.0 : Studio Artifact Scan, View Prompt, Rename & Download =======================
+  function getStudioArtifactMenus() {
+    const studio = findStudioContainer() || document;
+    const btns = [];
+    for (const b of studio.querySelectorAll("button, [role='button']")) {
+      if (!isVisible(b)) continue;
+      const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
+      const aria = (b.getAttribute("aria-label") || "").trim().toLowerCase();
+      if (aria.includes("settings") || aria.includes("collapse") || aria.includes("expand") || aria.includes("notebook configuration")) continue;
+      if (txt === "more_vert" || aria.includes("more options") || aria.includes("more actions")) {
+        const card = b.closest(".artifact-card, .studio-item, mat-card, [class*='artifact' i]") || b.parentElement?.parentElement || b;
+        const cardTxt = (card.innerText || card.textContent || "").trim();
+        const isGen = /may take a while/i.test(cardTxt) || _has(cardTxt.toLowerCase(), NLM_CONFIG.words.generating) || !!card.querySelector(NLM_CONFIG.selectors.spinners);
+        const lines = cardTxt.split(/\n/).map((s) => s.trim()).filter((s) => s && !/^(more_vert|play_arrow|pause|download|edit|delete|check)$/i.test(s));
+        btns.push({ btn: b, card, cardTitle: (lines[0] || "Untitled").slice(0, 120), isGenerating: isGen });
+      }
+    }
+    return btns;
+  }
+
+  async function openArtifactMenu(index) {
+    const list = getStudioArtifactMenus();
+    const item = list[index];
+    if (!item || !item.btn) return null;
+    try { item.btn.scrollIntoView({ block: "center" }); } catch (e) {}
+    await pause(150);
+    selectElementCleanly(item.btn);
+    for (let i = 0; i < 8; i++) {
+      await pause(250);
+      const items = Array.from(document.querySelectorAll("[role='menuitem'], .mat-mdc-menu-item, .cdk-overlay-pane button")).filter(isVisible);
+      if (items.length > 0) return { item, menuItems: items };
+    }
+    return null;
+  }
+
+  async function closeOverlayMenu() {
+    try {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+      await pause(250);
+    } catch (e) {}
+  }
+
+  function scanArtifactsFlow() {
+    const list = getStudioArtifactMenus().map((a, idx) => ({
+      index: idx,
+      cardTitle: a.cardTitle,
+      isGenerating: a.isGenerating
+    }));
+    return { success: true, action: "scan_artifacts", confirmed: true, data: { artifacts: list }, message: `Found ${list.length} Studio artifacts.` };
+  }
+
+  async function readArtifactPromptFlow(index) {
+    if (isBusy) return { success: false, busy: true, error: "Busy: previous command is still running in NotebookLM tab." };
+    isBusy = true;
+    try {
+      await closeActiveDialogIfOpen();
+      const opened = await openArtifactMenu(index);
+      if (!opened) return { success: false, error: `Artifact #${index} menu could not be opened.` };
+      const viewBtn = opened.menuItems.find((el) => {
+        const t = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim().toLowerCase();
+        return /view\s*(custom\s*)?prompt|custom\s*prompt|show\s*prompt|prompt/i.test(t);
+      });
+      if (!viewBtn) {
+        await closeOverlayMenu();
+        return { success: true, action: "read_artifact_prompt", confirmed: true, data: { index, cardTitle: opened.item.cardTitle, hasPrompt: false, promptText: "" } };
+      }
+      selectElementCleanly(viewBtn);
+      let dlg = null;
+      for (let i = 0; i < 10; i++) {
+        await pause(300);
+        dlg = getActiveDialog();
+        if (dlg) break;
+      }
+      let promptText = "";
+      if (dlg) {
+        const raw = (dlg.innerText || dlg.textContent || "").trim();
+        promptText = raw
+          .replace(/^(?:view\s*)?(?:custom\s*)?prompt\s*\n+/i, "")
+          .replace(/\n+(?:close|done|ok|cancel)\s*$/i, "")
+          .trim();
+        await closeActiveDialogIfOpen();
+      } else {
+        await closeOverlayMenu();
+      }
+      return {
+        success: true,
+        action: "read_artifact_prompt",
+        confirmed: true,
+        data: { index, cardTitle: opened.item.cardTitle, hasPrompt: !!promptText, promptText }
+      };
+    } finally {
+      isBusy = false;
+    }
+  }
+
+  async function renameAndDownloadArtifactFlow(index, newTitle, opts = {}) {
+    if (isBusy) return { success: false, busy: true, error: "Busy: previous command is still running in NotebookLM tab." };
+    isBusy = true;
+    const doRename = opts.doRename !== false && !!(newTitle && newTitle.trim());
+    const doDownload = opts.doDownload !== false;
+    let renamed = false;
+    let downloaded = false;
+    try {
+      await closeActiveDialogIfOpen();
+      if (doRename) {
+        const opened = await openArtifactMenu(index);
+        if (opened) {
+          const renBtn = opened.menuItems.find((el) => {
+            const t = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim().toLowerCase();
+            return /^rename\b|rename|नाम बदलें/i.test(t);
+          });
+          if (renBtn) {
+            selectElementCleanly(renBtn);
+            await pause(500);
+            const dlg = getActiveDialog();
+            const inp = findVisibleTextarea(dlg || opened.item.card) || findVisibleTextarea(document);
+            if (inp) {
+              fillTextareaRockSolid(inp, newTitle.trim());
+              await pause(250);
+              const saveBtn = dlg ? Array.from(dlg.querySelectorAll("button, [role='button']")).find((b) => isVisible(b) && /^(save|rename|ok|done|सहेजें)$/i.test((b.innerText || b.textContent || "").trim())) : null;
+              if (saveBtn && !isElementDisabled(saveBtn)) {
+                selectElementCleanly(saveBtn);
+              } else {
+                inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+                inp.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+              }
+              renamed = true;
+              await pause(900);
+              await closeActiveDialogIfOpen();
+            } else {
+              await closeOverlayMenu();
+            }
+          } else {
+            await closeOverlayMenu();
+          }
+        }
+      }
+
+      if (doDownload) {
+        const opened2 = await openArtifactMenu(index);
+        if (!opened2) {
+          return { success: false, error: `Artifact #${index} menu could not be opened for download.`, data: { renamed, downloaded } };
+        }
+        const dlBtn = opened2.menuItems.find((el) => {
+          const t = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim().toLowerCase();
+          return /^download\b|download|डाउनलोड/i.test(t);
+        });
+        if (!dlBtn) {
+          await closeOverlayMenu();
+          return { success: false, error: `Download option not found for artifact #${index}.`, data: { renamed, downloaded } };
+        }
+        selectElementCleanly(dlBtn);
+        downloaded = true;
+        await pause(1800);
+      }
+
+      return {
+        success: true,
+        action: "rename_download_artifact",
+        confirmed: true,
+        data: { index, renamed, downloaded },
+        message: `${renamed ? "Renamed + " : ""}${downloaded ? "Download started" : "Done"}`
+      };
+    } finally {
+      isBusy = false;
+    }
+  }
 
   // ======================= v5.0.0 : extra tools =======================
   // Diagnose: lists every visible button / link / input with its text + aria-label, so selectors can be fixed from facts.
@@ -1648,6 +1915,12 @@ const NLM_LANG_PACKS = {
             let res;
             if (msg.mode === "scan_ui") {
               res = scanUiFlow();
+            } else if (msg.mode === "scan_artifacts") {
+              res = scanArtifactsFlow();
+            } else if (msg.mode === "read_artifact_prompt") {
+              res = await readArtifactPromptFlow(Number(msg.index) || 0);
+            } else if (msg.mode === "rename_download_artifact") {
+              res = await renameAndDownloadArtifactFlow(Number(msg.index) || 0, msg.newTitle || "", { doRename: msg.doRename !== false, doDownload: msg.doDownload !== false });
             } else if (msg.mode === "chat") {
               res = await chatFlow(msg.topic || "", flowOpts);
             } else if (msg.mode === "add_source") {
