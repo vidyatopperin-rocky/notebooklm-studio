@@ -386,6 +386,9 @@ const NLM_LANG_PACKS = {
 
   function findStudioContainer() {
     ensureStudioTabSelected();
+    const direct = document.querySelector("section.studio-panel, .studio-panel");
+    if (direct && isVisible(direct)) return direct;
+
     const allContainers = document.querySelectorAll(
       "aside, mat-sidenav, .studio-container, .studio-panel, [role='region'], section, div"
     );
@@ -1276,6 +1279,16 @@ const NLM_LANG_PACKS = {
 
   function findStudioTile(studio, words, excludeWords) {
     const scope = studio || document;
+    // Priority 0: Exact NotebookLM creation tiles ([data-testid="create-artifact-tile"])
+    const directTiles = scope.querySelectorAll("[data-testid='create-artifact-tile'], .create-artifact-button-container");
+    for (const el of directTiles) {
+      if (!isVisible(el)) continue;
+      const text = (el.innerText || el.textContent || "").trim().toLowerCase();
+      const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+      if (excludeWords && (_has(text, excludeWords) || _has(aria, excludeWords))) continue;
+      if (_has(text, words) || _has(aria, words)) return el;
+    }
+
     let best = null;
     for (const el of scope.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
       if (!isVisible(el)) continue;
@@ -1460,22 +1473,42 @@ const NLM_LANG_PACKS = {
 
   // ======================= v7.9.0 : Studio Artifact Scan, View Prompt, Rename & Download =======================
   function getStudioArtifactMenus() {
-    const studio = findStudioContainer();
-    const studioIsBody = !studio || studio === document.body;
+    const directPanel = document.querySelector("section.studio-panel, .studio-panel");
+    const studio = (directPanel && isVisible(directPanel)) ? directPanel : findStudioContainer();
+    const hasDirectPanel = !!(directPanel && studio === directPanel);
     const btns = [];
+
+    // Strategy 1: Exact NotebookLM Studio artifact cards (.artifact-item-button)
+    const cards = (studio || document).querySelectorAll(".artifact-item-button");
+    if (cards.length > 0) {
+      for (const card of cards) {
+        if (!isVisible(card)) continue;
+        const btn = card.querySelector(".artifact-more-button button[aria-label='More'], .artifact-more-button button, button[aria-label='More']");
+        if (!btn || !isVisible(btn)) continue;
+        const titleEl = card.querySelector("[data-testid='artifact-title']");
+        const cardTxt = (card.innerText || card.textContent || "").trim();
+        const isGen = /may take a while/i.test(cardTxt) || _has(cardTxt.toLowerCase(), NLM_CONFIG.words.generating) || !!card.querySelector(NLM_CONFIG.selectors.spinners);
+        const titleText = (titleEl ? (titleEl.innerText || titleEl.textContent || "") : "").trim();
+        const lines = cardTxt.split(/\n/).map((s) => s.trim()).filter((s) => s && !/^(more_vert|play_arrow|pause|download|edit|delete|check)$/i.test(s));
+        btns.push({ btn, card, cardTitle: (titleText || lines[0] || "Untitled").slice(0, 120), isGenerating: isGen });
+      }
+      if (btns.length > 0) return btns;
+    }
+
+    // Strategy 2: Fallback generic scan strictly inside Studio
     for (const b of (studio || document).querySelectorAll("button, [role='button']")) {
       if (!isVisible(b)) continue;
-      // Never touch the left-side Sources panel or middle Chat panel
-      const rect = b.getBoundingClientRect();
-      if (rect.left < window.innerWidth * 0.5) continue;
-      if (studioIsBody && rect.left < window.innerWidth * 0.55) continue;
+      if (!hasDirectPanel) {
+        const rect = b.getBoundingClientRect();
+        if (rect.left < window.innerWidth * 0.5) continue;
+      }
       if (b.closest("[aria-label*='source' i], [class*='source-panel' i], [class*='sources' i]")) continue;
 
       const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
       const aria = (b.getAttribute("aria-label") || "").trim().toLowerCase();
       if (aria.includes("settings") || aria.includes("collapse") || aria.includes("expand") || aria.includes("notebook configuration")) continue;
-      if (txt === "more_vert" || aria.includes("more options") || aria.includes("more actions")) {
-        const card = b.closest(".artifact-card, .studio-item, mat-card, [class*='artifact' i]") || b.parentElement?.parentElement || b;
+      if (txt === "more_vert" || aria === "more" || aria.includes("more options") || aria.includes("more actions")) {
+        const card = b.closest(".artifact-item-button, .artifact-card, .studio-item, mat-card, [class*='artifact' i]") || b.parentElement?.parentElement || b;
         const cardTxt = (card.innerText || card.textContent || "").trim();
         const isGen = /may take a while/i.test(cardTxt) || _has(cardTxt.toLowerCase(), NLM_CONFIG.words.generating) || !!card.querySelector(NLM_CONFIG.selectors.spinners);
         const lines = cardTxt.split(/\n/).map((s) => s.trim()).filter((s) => s && !/^(more_vert|play_arrow|pause|download|edit|delete|check)$/i.test(s));
@@ -1525,7 +1558,7 @@ const NLM_LANG_PACKS = {
       if (!opened) return { success: false, error: `Artifact #${index} menu could not be opened.` };
       const viewBtn = opened.menuItems.find((el) => {
         const t = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim().toLowerCase();
-        return /view\s*(custom\s*)?prompt|custom\s*prompt|show\s*prompt|prompt/i.test(t);
+        return /view\s*prompt|view\s*(custom\s*)?prompt|custom\s*prompt|show\s*prompt/i.test(t);
       });
       if (!viewBtn) {
         await closeOverlayMenu();
@@ -1542,7 +1575,8 @@ const NLM_LANG_PACKS = {
       if (dlg) {
         const raw = (dlg.innerText || dlg.textContent || "").trim();
         promptText = raw
-          .replace(/^(?:view\s*)?(?:custom\s*)?prompt\s*\n+/i, "")
+          .replace(/^(?:view\s*)?(?:custom\s*)?prompt(?:\s+and\s+sources)?\s*\n+/i, "")
+          .replace(/\n+(?:sources?\s*(?:\(\d+\))?[\s\S]*)$/i, "")
           .replace(/\n+(?:close|done|ok|cancel)\s*$/i, "")
           .trim();
         await closeActiveDialogIfOpen();
