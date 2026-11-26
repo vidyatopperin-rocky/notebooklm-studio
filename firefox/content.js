@@ -387,22 +387,29 @@ const NLM_LANG_PACKS = {
   function findStudioContainer() {
     ensureStudioTabSelected();
     const allContainers = document.querySelectorAll(
-      "aside, mat-sidenav, .studio-container, .studio-panel, [role='region'], div"
+      "aside, mat-sidenav, .studio-container, .studio-panel, [role='region'], section, div"
     );
+    let best = null;
+    let bestArea = Infinity;
     for (const c of allContainers) {
       if (c.closest("#nlm-mini-box")) continue;
       const rect = c.getBoundingClientRect();
-      if (rect.right > window.innerWidth * 0.45 && rect.width > 180 && rect.height > 200) {
+      // Studio panel is on the RIGHT side of the page; never match the full-page wrapper or left Sources panel
+      if (rect.left >= window.innerWidth * 0.42 && rect.width > 180 && rect.width < window.innerWidth * 0.65 && rect.height > 200) {
         const text = (c.innerText || c.textContent || "").toLowerCase();
         if (
           (_has(text, NLM_CONFIG.words.audioOverview) && _has(text, NLM_CONFIG.words.videoOverview)) ||
           (text.includes("studio") && text.includes("video"))
         ) {
-          return c;
+          const area = rect.width * rect.height;
+          if (area < bestArea) {
+            bestArea = area;
+            best = c;
+          }
         }
       }
     }
-    return document.body;
+    return best || document.body;
   }
 
   // Open Video Overview Customize Dialog strictly using real interactive controls
@@ -1453,10 +1460,17 @@ const NLM_LANG_PACKS = {
 
   // ======================= v7.9.0 : Studio Artifact Scan, View Prompt, Rename & Download =======================
   function getStudioArtifactMenus() {
-    const studio = findStudioContainer() || document;
+    const studio = findStudioContainer();
+    const studioIsBody = !studio || studio === document.body;
     const btns = [];
-    for (const b of studio.querySelectorAll("button, [role='button']")) {
+    for (const b of (studio || document).querySelectorAll("button, [role='button']")) {
       if (!isVisible(b)) continue;
+      // Never touch the left-side Sources panel or middle Chat panel
+      const rect = b.getBoundingClientRect();
+      if (rect.left < window.innerWidth * 0.5) continue;
+      if (studioIsBody && rect.left < window.innerWidth * 0.55) continue;
+      if (b.closest("[aria-label*='source' i], [class*='source-panel' i], [class*='sources' i]")) continue;
+
       const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
       const aria = (b.getAttribute("aria-label") || "").trim().toLowerCase();
       if (aria.includes("settings") || aria.includes("collapse") || aria.includes("expand") || aria.includes("notebook configuration")) continue;
