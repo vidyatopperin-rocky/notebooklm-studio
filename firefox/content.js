@@ -1584,18 +1584,11 @@ const NLM_LANG_PACKS = {
     return (bestScore >= 0.65 && bestCommon >= 4) ? best : null;
   }
   function findArtifactTitleField() {
-    const sels = ["input[aria-label*='Artifact title' i]", "input[aria-label*='artifact' i]", "textarea[aria-label*='Artifact title' i]"];
-    for (const sel of sels) { const el = document.querySelector(sel); if (el && isVisible(el)) return el; }
-    for (const el of document.querySelectorAll("[contenteditable='true']")) {
-      if (!isVisible(el)) continue;
-      const hay = ((el.getAttribute("aria-label") || "") + " " + (el.id || "")).toLowerCase();
-      if (hay.includes("title") || hay.includes("artifact")) return el;
-    }
-    // Fallback: any visible text field near the top whose label/placeholder mentions title
-    for (const el of document.querySelectorAll("input[type='text'], textarea")) {
-      if (!isVisible(el)) continue;
-      const hay = ((el.getAttribute("aria-label") || "") + " " + (el.getAttribute("placeholder") || "") + " " + (el.id || "")).toLowerCase();
-      if (hay.includes("title") || hay.includes("artifact")) return el;
+    const studio = document.querySelector("section.studio-panel, .studio-panel") || document;
+    const sels = ["input[aria-label*='Artifact title' i]", "input.artifact-title", "input[aria-label*='artifact' i]", "textarea[aria-label*='Artifact title' i]"];
+    for (const sel of sels) {
+      const el = studio.querySelector(sel) || document.querySelector(sel);
+      if (el && isVisible(el) && !el.closest("[aria-label*='source' i], [class*='source' i], [class*='chat' i]")) return el;
     }
     return null;
   }
@@ -1669,8 +1662,10 @@ const NLM_LANG_PACKS = {
     // Fallback (Rocky: kabhi 3-dot mein aata hai): open the ... menu, then Download inside it.
     let more = (moreBtnOverride && isVisible(moreBtnOverride)) ? moreBtnOverride : null;
     if (!more) {
-      for (const el of document.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
+      const studioScope = findStudioContainer();
+      for (const el of (studioScope || document).querySelectorAll(NLM_CONFIG.selectors.clickables)) {
         if (!isVisible(el)) continue;
+        if (el.closest("[aria-label*='source' i], [class*='source-panel' i], [class*='sources' i]")) continue;
         const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
         const t = (el.innerText || el.textContent || "").trim().toLowerCase();
         if (aria === "more" || aria.includes("more option") || aria.includes("more action") || t === "more_vert" || t === "\u22ef" || t === "\u2026") { more = el; break; }
@@ -1699,13 +1694,20 @@ const NLM_LANG_PACKS = {
     selectElementCleanly(renBtn);
     await pause(600);
     const dlg = getActiveDialog();
-    const inp = findVisibleTextarea(dlg || document);
-    if (!inp) return { ok: false, error: "Rename input box nahi mila." };
+    const studioScope = document.querySelector("section.studio-panel, .studio-panel");
+    // NEVER search `document` here (otherwise it would type into Sources search box or Chat box!)
+    let inp = dlg ? findVisibleTextarea(dlg) : null;
+    if (!inp) inp = findArtifactTitleField();
+    if (!inp && studioScope) {
+      inp = Array.from(studioScope.querySelectorAll("input[type='text'], input:not([type]), textarea")).find((el) => isVisible(el));
+    }
+    if (!inp) return { ok: false, error: "Rename input box Studio/dialog mein nahi mila (Sources/Chat ko touch nahi kiya)." };
     fillTextareaRockSolid(inp, newTitle);
     await pause(300);
     const saveBtn = dlg ? Array.from(dlg.querySelectorAll("button, [role='button']")).find((b) => isVisible(b) && /^(save|rename|ok|done|सहेजें)$/i.test((b.innerText || b.textContent || "").trim())) : null;
     if (saveBtn && !isElementDisabled(saveBtn)) selectElementCleanly(saveBtn);
     else inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+    try { inp.blur(); } catch (e) {}
     await pause(900);
     await closeActiveDialogIfOpen();
     return { ok: true };
