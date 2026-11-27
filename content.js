@@ -396,23 +396,29 @@ const NLM_LANG_PACKS = {
 
   function findStudioContainer() {
     ensureStudioTabSelected();
+    const direct = document.querySelector("section.studio-panel, .studio-panel");
+    if (direct && isVisible(direct)) return direct;
+
     const allContainers = document.querySelectorAll(
-      "aside, mat-sidenav, .studio-container, .studio-panel, [role='region'], div"
+      "aside, mat-sidenav, .studio-container, .studio-panel, [role='region'], section, div"
     );
+    let best = null;
+    let bestArea = Infinity;
     for (const c of allContainers) {
       if (c.closest("#nlm-mini-box")) continue;
       const rect = c.getBoundingClientRect();
-      if (rect.right > window.innerWidth * 0.45 && rect.width > 180 && rect.height > 200) {
+      if (rect.left >= window.innerWidth * 0.42 && rect.width > 180 && rect.width < window.innerWidth * 0.65 && rect.height > 200) {
         const text = (c.innerText || c.textContent || "").toLowerCase();
         if (
           (_has(text, NLM_CONFIG.words.audioOverview) && _has(text, NLM_CONFIG.words.videoOverview)) ||
           (text.includes("studio") && text.includes("video"))
         ) {
-          return c;
+          const area = rect.width * rect.height;
+          if (area < bestArea) { bestArea = area; best = c; }
         }
       }
     }
-    return document.body;
+    return best || document.body;
   }
 
   // Open Video Overview Customize Dialog strictly using real interactive controls
@@ -1656,9 +1662,9 @@ const NLM_LANG_PACKS = {
     if (!more) {
       for (const el of document.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
         if (!isVisible(el)) continue;
-        const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-        const t = (el.innerText || el.textContent || "").trim();
-        if (aria.includes("more option") || aria.includes("more action") || t === "\u22ef" || t === "\u2026") { more = el; break; }
+        const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        if (aria === "more" || aria.includes("more option") || aria.includes("more action") || t === "more_vert" || t === "\u22ef" || t === "\u2026") { more = el; break; }
       }
     }
     if (!more) return { ok: false, error: "Download button header mein nahi mila, aur 3-dot menu bhi nahi mila." };
@@ -1669,6 +1675,31 @@ const NLM_LANG_PACKS = {
     if (!inMenu || isElementDisabled(inMenu)) { await closeActiveDialogIfOpen(); return { ok: false, error: "3-dot menu khula, par usme Download nahi mila." }; }
     selectElementCleanly(inMenu);
     return { ok: true, location: "3-dot menu" };
+  }
+  async function renameViaMoreMenu(moreBtn, newTitle) {
+    if (!moreBtn || !isVisible(moreBtn)) return { ok: false, error: "3-dot button nahi mila." };
+    selectElementCleanly(moreBtn);
+    await pause(900);
+    const menu = document.querySelector(".cdk-overlay-container") || document;
+    const renBtn = findClickableByWords(menu, ["rename", "नाम बदलें"], null, 80);
+    if (!renBtn || isElementDisabled(renBtn)) {
+      try { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); } catch (e) {}
+      await pause(300);
+      return { ok: false, error: "3-dot menu mein Rename nahi mila." };
+    }
+    selectElementCleanly(renBtn);
+    await pause(600);
+    const dlg = getActiveDialog();
+    const inp = findVisibleTextarea(dlg || document);
+    if (!inp) return { ok: false, error: "Rename input box nahi mila." };
+    fillTextareaRockSolid(inp, newTitle);
+    await pause(300);
+    const saveBtn = dlg ? Array.from(dlg.querySelectorAll("button, [role='button']")).find((b) => isVisible(b) && /^(save|rename|ok|done|सहेजें)$/i.test((b.innerText || b.textContent || "").trim())) : null;
+    if (saveBtn && !isElementDisabled(saveBtn)) selectElementCleanly(saveBtn);
+    else inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+    await pause(900);
+    await closeActiveDialogIfOpen();
+    return { ok: true };
   }
   // v7.10.0: core bina isBusy guard ke — manual renameDownloadFlow (guard ke saath) aur AI Auto pass
   // (jo khud item-by-item chalata hai) dono isi ko use karte hain. opts.preReadPrompt mile to prompt
@@ -1687,10 +1718,17 @@ const NLM_LANG_PACKS = {
       let renamed = (oldTitle === newTitle);
       if (!renamed) {
         const set = setArtifactTitle(newTitle);
-        if (!set.ok) return { success: false, error: set.error, data: { oldTitle, matchedTitle: newTitle, matchedNumber: match.number } };
-        await pause(900);
-        renamed = readArtifactTitle() === newTitle;
-        if (!renamed) return { success: false, error: "Title field mein naya naam likha, par wapas padhne par purana hi dikh raha hai — NotebookLM ne save nahi kiya.", data: { oldTitle, matchedTitle: newTitle, matchedNumber: match.number } };
+        if (set.ok) {
+          await pause(900);
+          renamed = readArtifactTitle() === newTitle;
+        }
+        if (!renamed && opts.moreBtn) {
+          const viaMenu = await renameViaMoreMenu(opts.moreBtn, newTitle);
+          if (viaMenu.ok) renamed = true;
+        }
+        if (!renamed) {
+          return { success: false, error: set.ok ? "Title field mein naya naam likha, par save nahi hua." : set.error, data: { oldTitle, matchedTitle: newTitle, matchedNumber: match.number } };
+        }
       }
       let dl = null;
       if (opts.download !== false) {
@@ -1769,10 +1807,11 @@ const NLM_LANG_PACKS = {
     let excludedCustomize = 0;
     for (const btn of scope.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
       if (!isVisible(btn)) continue;
-      const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
-      const t = (btn.innerText || btn.textContent || "").trim();
-      if (!(_has(aria, NLM_CONFIG.words.moreOptions) || t === "⋯" || t === "…")) continue;
-      let row = btn.closest("[role='listitem'], mat-list-item, .studio-item, .artifact-card, [class*='studio-item' i], li, [role='option']");
+      const aria = (btn.getAttribute("aria-label") || "").trim().toLowerCase();
+      const t = (btn.innerText || btn.textContent || "").trim().toLowerCase();
+      if (aria.includes("settings") || aria.includes("collapse") || aria.includes("expand") || aria.includes("notebook configuration")) continue;
+      if (!(aria === "more" || _has(aria, NLM_CONFIG.words.moreOptions) || t === "more_vert" || t === "⋯" || t === "…")) continue;
+      let row = btn.closest(".artifact-item-button, [role='listitem'], mat-list-item, .studio-item, .artifact-card, [class*='studio-item' i], li, [role='option']");
       if (!row) {
         let p = btn.parentElement;
         for (let d = 0; d < 5 && p; d++, p = p.parentElement) {
@@ -1786,9 +1825,10 @@ const NLM_LANG_PACKS = {
       if (!text) continue;
       const low = text.toLowerCase();
       if (low.includes("customize") || low.includes("customise")) { excludedCustomize++; continue; } // create-tile, artifact nahi
-      const title = extractRowTitle(text);
+      const titleEl = row.querySelector("[data-testid='artifact-title']");
+      const title = (titleEl ? (titleEl.innerText || titleEl.textContent || "").trim() : "") || extractRowTitle(text);
       if (!title) continue;
-      const type = /audio/.test(low) ? "audio" : (/video|short/.test(low) ? "video" : "unknown");
+      const type = /audio|deep dive|critique|debate|brief/i.test(low) ? "audio" : (/video|short|explainer|cinematic/i.test(low) ? "video" : "unknown");
       items.push({ rowEl: row, title: title, type: type, moreBtn: btn });
     }
     return { items: items, excludedCustomize: excludedCustomize };
@@ -1820,19 +1860,25 @@ const NLM_LANG_PACKS = {
     }
     try { row.scrollIntoView({ block: "nearest" }); } catch (e) {}
     await pause(300);
-    // Title wale hisse par click karo — poori row par click karne se kabhi kabhi menu khul jata hai.
-    let target = row, how = "row";
-    try {
-      const kids = row.querySelectorAll("*");
-      for (const k of kids) {
-        const t = (k.innerText || k.textContent || "").trim();
-        if (t && item.title && (t === item.title || t.indexOf(item.title) === 0) && k.children.length <= 2) { target = k; how = "title-el"; break; }
-      }
-    } catch (e) {}
+    // Priority 1: [data-testid="artifact-open-button"] (live NotebookLM stretched open button), else title element, else row
+    let target = row.querySelector("[data-testid='artifact-open-button']") || row, how = "open-btn";
+    if (target === row) {
+      how = "row";
+      try {
+        const kids = row.querySelectorAll("*");
+        for (const k of kids) {
+          const t = (k.innerText || k.textContent || "").trim();
+          if (t && item.title && (t === item.title || t.indexOf(item.title) === 0) && k.children.length <= 2) { target = k; how = "title-el"; break; }
+        }
+      } catch (e) {}
+    }
     selectElementCleanly(target);
     for (let i = 0; i < 8; i++) { await pause(500); if (findArtifactTitleField()) return { ok: true, how: how }; }
     selectElementCleanly(row);
     for (let i = 0; i < 6; i++) { await pause(500); if (findArtifactTitleField()) return { ok: true, how: "row-retry" }; }
+    if (item.type === "audio" && item.moreBtn && isVisible(item.moreBtn)) {
+      return { ok: true, how: "audio-menu-fallback" };
+    }
     return { ok: false, error: "Studio list se item khola, par detail panel (title field) nahi khula — row ka click ya selector galat ho sakta hai." };
   }
   async function closeArtifactDetail() {
