@@ -168,46 +168,35 @@
           </div>
         </div>
 </details>
-        <!-- v7.9.0: Rename + Download (khula hua Short) -->
-        <div class="batch-control-panel" style="margin-top:12px;">
-          <div class="batch-header">
-            <div class="batch-title-wrapper">
-              <span class="batch-icon">🏷️</span>
-              <div>
-                <h3 class="batch-title">Rename + Download (khula hua Short)</h3>
-                <p class="batch-desc">NotebookLM mein jo Short khula hai, uska prompt padh ke dashboard ke prompts se match karega, phir uska random title hata ke sahi title (jaise “Short 38 - …”) likhega aur download karega. Download header mein na mile to 3-dot (⋯) menu mein dhoondhega.</p>
-              </div>
-            </div>
-          </div>
-          <div class="batch-actions-bar">
-            <button id="btn-rename-download" class="btn-batch-start"><span class="btn-batch-icon">🏷️⬇️</span><span>Rename + Download karo</span></button>
-            <button id="btn-rename-only" class="btn-secondary"><span>🏷️ Sirf rename karo</span></button>
-          </div>
-          <div class="batch-options-bar"><span class="batch-option-hint">⚠️ Pehle NotebookLM mein Short ka detail panel kholo, aur extension usi Chrome mein loaded hona chahiye jisme ye prompts save hain — nahi to match nahi hoga aur “Extension Inactive” dikhega.</span></div>
-        </div>
-
         <!-- v7.10.0: AI Auto (khud rename + download) -->
         <div class="batch-control-panel" style="margin-top:12px;">
           <div class="batch-header">
             <div class="batch-title-wrapper">
               <span class="batch-icon">🤖</span>
               <div>
-                <h3 class="batch-title">AI Auto (khud rename + download)</h3>
-                <p class="batch-desc">Ek click: pehle Auto-Batch ki tarah prompts ek-ek karke bhejega, phir ~30 min wait karke Studio ke naye Video/Audio ka prompt padh ke dashboard prompts se milayega — mila to sahi title likh ke download karega, nahi mila to chhod dega. Limit aate hi agla batch apne aap resume hoga, batch by batch, jab tak saare prompts na ho jayein.</p>
+                <h3 class="batch-title">AI Auto (Rename + Download)</h3>
+                <p class="batch-desc">Prompts bhejne ke ~30 min baad (ya pehle se bane outputs ko) prompt match karke sahi naam se download karta hai.</p>
               </div>
             </div>
           </div>
           <div class="batch-actions-bar">
-            <button id="btn-ai-auto-start" class="btn-batch-start"><span class="btn-batch-icon">🤖▶</span><span>AI Auto Start karo</span></button>
-            <button id="btn-ai-auto-stop" class="btn-batch-stop" disabled><span class="btn-batch-icon">⏹</span><span>AI Auto Roko</span></button>
+            <button id="btn-ai-auto-start" class="btn-batch-start"><span class="btn-batch-icon">🤖▶</span><span>AI Auto Start</span></button>
+            <button id="btn-ai-existing-start" class="btn-batch-start"><span class="btn-batch-icon">📼🏷️</span><span>Bane hue Rename + Download</span></button>
+            <button id="btn-ai-auto-stop" class="btn-batch-stop" disabled><span class="btn-batch-icon">⏹</span><span>Stop</span></button>
           </div>
-          <div class="batch-actions-bar">
-            <button id="btn-ai-existing-start" class="btn-batch-start"><span class="btn-batch-icon">📼🏷️</span><span>Bane hue ka rename + download karo</span></button>
-          </div>
-          <div class="batch-options-bar"><span id="ai-existing-status" class="batch-option-hint">Pehle se bane hue Video/Audio items (jaise Samvidhan notebook ke 80 Audio + 87 Shorts) — kuch bheje bina, seedha rename + download. Har item ka prompt dashboard prompts se milega; ek hi prompt ke Audio aur Video ko wahi title milega, ye normal hai.</span></div>
-          <div class="batch-options-bar"><span id="ai-auto-status" class="batch-option-hint">Abhi koi AI Auto run nahi hua. Start dabao to pehle batch bhejega, phir ~30 min wait karke khud rename + download karega.</span></div>
-          <div class="batch-options-bar"><span class="batch-option-hint">⚠️ Pehle maujooda notebook mein SIRF ek artifact par test karo — aur test ke baad uska title wapas purana karke revert kar do. Studio list ka structure abhi live verify nahi hua hai. Limit reset ka time NotebookLM khud batata hai (“available after …”), wahi use hota hai.</span></div>
+          <div class="batch-options-bar"><span id="ai-existing-status" class="batch-option-hint"></span></div>
+          <div class="batch-options-bar"><span id="ai-auto-status" class="batch-option-hint">Ready.</span></div>
         </div>
+
+        <!-- v7.9.0: Single Short manual Rename + Download (collapsed by default) -->
+        <details class="fold-batch"><summary>🏷️ Ek khula hua Short: Manual Rename + Download</summary>
+          <div class="batch-control-panel">
+            <div class="batch-actions-bar">
+              <button id="btn-rename-download" class="btn-batch-start"><span class="btn-batch-icon">🏷️⬇️</span><span>Rename + Download</span></button>
+              <button id="btn-rename-only" class="btn-secondary"><span>🏷️ Sirf Rename</span></button>
+            </div>
+          </div>
+        </details>
 
 
         <!-- PROMPT SPLITTER & BULK PASTE SYSTEM -->

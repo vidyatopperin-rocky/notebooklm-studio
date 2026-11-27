@@ -1861,12 +1861,18 @@ const NLM_LANG_PACKS = {
     await pause(300);
     let row = item.rowEl;
     if (!row || !row.isConnected) {
-      const fresh = listStudioArtifactsSync().items.find((it) => it.title === item.title && it.type === item.type);
+      let fresh = null;
+      for (let w = 0; w < 10 && !fresh; w++) {
+        const cur = listStudioArtifactsSync().items;
+        fresh = cur.find((it) => it.title === item.title && it.type === item.type)
+          || cur.find((it) => it.title === item.title);
+        if (!fresh) await pause(400);
+      }
       if (!fresh) return { ok: false, error: "Studio list dobara render hui aur ye item wapas nahi mila (title: " + item.title + ")." };
       row = fresh.rowEl; item.rowEl = row; item.moreBtn = fresh.moreBtn;
     }
-    try { row.scrollIntoView({ block: "nearest" }); } catch (e) {}
-    await pause(300);
+    try { row.scrollIntoView({ block: "center" }); } catch (e) {}
+    await pause(350);
     // Priority 1: [data-testid="artifact-open-button"] (live NotebookLM stretched open button), else title element, else row
     let target = row.querySelector("[data-testid='artifact-open-button']") || row, how = "open-btn";
     if (target === row) {
@@ -1890,12 +1896,18 @@ const NLM_LANG_PACKS = {
   }
   async function closeArtifactDetail() {
     if (!findArtifactTitleField()) return { ok: true, how: "already-closed" };
+    const waitListBack = async () => {
+      for (let i = 0; i < 8; i++) {
+        if (!findArtifactTitleField() && listStudioArtifactsSync().items.length > 0) return true;
+        await pause(350);
+      }
+      return !findArtifactTitleField();
+    };
     // Priority 1: Live NotebookLM "Studio" breadcrumb (section.studio-panel .panel-header-clickable) returns cleanly to Studio list
     const studioCrumb = Array.from(document.querySelectorAll("section.studio-panel .panel-header-clickable, .studio-panel .panel-header-clickable, .panel-header nav span")).find((el) => isVisible(el) && /^studio$/i.test((el.innerText || el.textContent || "").trim()));
     if (studioCrumb) {
       selectElementCleanly(studioCrumb);
-      await pause(800);
-      if (!findArtifactTitleField()) return { ok: true, how: "studio-breadcrumb" };
+      if (await waitListBack()) return { ok: true, how: "studio-breadcrumb" };
     }
     // Priority 2: Back / Close buttons
     for (const el of document.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
@@ -1904,13 +1916,11 @@ const NLM_LANG_PACKS = {
       const t = (el.innerText || el.textContent || "").trim();
       if (aria === "back" || aria.indexOf("go back") === 0 || aria === "close" || t === "✕" || t === "×" || t === "←") {
         selectElementCleanly(el);
-        await pause(700);
-        if (!findArtifactTitleField()) return { ok: true, how: aria || t };
+        if (await waitListBack()) return { ok: true, how: aria || t };
       }
     }
     try { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); } catch (e) {}
-    await pause(700);
-    if (!findArtifactTitleField()) return { ok: true, how: "escape" };
+    if (await waitListBack()) return { ok: true, how: "escape" };
     return { ok: false, how: "none", error: "Detail band nahi hua — agla item kholne par problem ho sakti hai." };
   }
   // Audio khulte hi AUTO-PLAY hota hai (live check 27 Nov 2026) — turant pause karo, nahi to poora
