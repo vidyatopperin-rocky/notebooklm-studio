@@ -2,6 +2,7 @@
 
 let allShorts = [];
 let completedPoints = new Set();
+let downloadedPoints = new Set();
 let currentFilter = "all";
 let searchTerm = "";
 
@@ -258,6 +259,7 @@ document.addEventListener("DOMContentLoaded", () => {
   freshInstall = localStorage.getItem("vt_user_shorts") === null;
   loadShortsData();
   loadCompletedState();
+  loadDownloadedState();
   renderAllShortsCards();
   setupFilterAndSearch();
   setupCardManagement();
@@ -310,6 +312,72 @@ function saveCompletedState() {
   scheduleBackup();
 }
 
+function loadDownloadedState() {
+  try {
+    const saved = localStorage.getItem("vt_downloaded_points");
+    if (saved) downloadedPoints = new Set(JSON.parse(saved));
+  } catch (e) {
+    downloadedPoints = new Set();
+  }
+}
+
+function saveDownloadedState() {
+  try {
+    localStorage.setItem("vt_downloaded_points", JSON.stringify(Array.from(downloadedPoints)));
+  } catch (e) {}
+}
+
+window.toggleCardDownloaded = function (num) {
+  markCardDownloaded(num, !downloadedPoints.has(num));
+};
+
+function markCardDownloaded(num, isDownloaded) {
+  if (num === null || num === undefined || isNaN(Number(num))) return;
+  const n = Number(num);
+  if (isDownloaded) downloadedPoints.add(n);
+  else downloadedPoints.delete(n);
+
+  const card = document.getElementById(`short-card-${n}`);
+  if (card) {
+    card.classList.toggle("downloaded", isDownloaded);
+    const cb = card.querySelector(".dl-checkbox");
+    const lbl = card.querySelector(".dl-label");
+    if (cb) cb.checked = isDownloaded;
+    if (lbl) lbl.textContent = isDownloaded ? "⬇ Downloaded" : "Downloaded";
+  }
+  saveDownloadedState();
+  updateProgressDisplay();
+  applyFilterAndSearch();
+}
+
+function syncDownloadedFromAiItems(items) {
+  if (!Array.isArray(items) || !items.length) return;
+  let changed = false;
+  for (const e of items) {
+    if (!e || e.number === null || e.number === undefined) continue;
+    if (e.result === "renamed" || e.result === "done" || e.download) {
+      const n = Number(e.number);
+      if (!isNaN(n) && !downloadedPoints.has(n)) {
+        downloadedPoints.add(n);
+        changed = true;
+        const card = document.getElementById(`short-card-${n}`);
+        if (card) {
+          card.classList.add("downloaded");
+          const cb = card.querySelector(".dl-checkbox");
+          const lbl = card.querySelector(".dl-label");
+          if (cb) cb.checked = true;
+          if (lbl) lbl.textContent = "⬇ Downloaded";
+        }
+      }
+    }
+  }
+  if (changed) {
+    saveDownloadedState();
+    updateProgressDisplay();
+    applyFilterAndSearch();
+  }
+}
+
 function escapeHtml(str) {
   if (!str) return "";
   return String(str)
@@ -343,9 +411,10 @@ function renderAllShortsCards() {
   allShorts.forEach((item) => {
     if (currentSection !== "all" && typeOf(item) !== currentSection) return;
     const isDone = completedPoints.has(item.number);
+    const isDl = downloadedPoints.has(item.number);
 
     const card = document.createElement("div");
-    card.className = `short-card ${isDone ? "completed" : ""}`;
+    card.className = `short-card ${isDone ? "completed" : ""} ${isDl ? "downloaded" : ""}`;
     card.id = `short-card-${item.number}`;
     card.dataset.num = item.number;
     card.dataset.title = (item.title || "").toLowerCase();
@@ -362,9 +431,13 @@ function renderAllShortsCards() {
           <button class="btn-card-action" onclick="moveItem(${item.number}, 1)" title="Neeche le jao">▼</button>
           <button class="btn-card-action btn-edit-card" onclick="openEditModal(${item.number})" title="Edit Number, Title or Prompt">✏️</button>
           <button class="btn-card-action btn-del-card" onclick="deleteSingleCard(${item.number})" title="Delete this card">🗑️</button>
-          <label class="short-status-indicator" title="Toggle completion">
+          <label class="short-status-indicator" title="Prompt bheja gaya">
             <input type="checkbox" class="tick-checkbox" ${isDone ? "checked" : ""} onchange="toggleCardCheck(${item.number})" />
             <span class="tick-label">${isDone ? "✓ Done" : "Done"}</span>
+          </label>
+          <label class="short-status-indicator dl-indicator" title="Rename + Download ho gaya">
+            <input type="checkbox" class="dl-checkbox" ${isDl ? "checked" : ""} onchange="toggleCardDownloaded(${item.number})" />
+            <span class="dl-label">${isDl ? "⬇ Downloaded" : "Downloaded"}</span>
           </label>
         </div>
       </div>
@@ -755,10 +828,12 @@ function updateProgressDisplay() {
   const countAll = document.getElementById("count-all");
   const countPending = document.getElementById("count-pending");
   const countComp = document.getElementById("count-completed");
+  const countDl = document.getElementById("count-downloaded");
 
   if (countAll) countAll.textContent = total;
   if (countPending) countPending.textContent = Math.max(0, total - completed);
   if (countComp) countComp.textContent = completed;
+  if (countDl) countDl.textContent = downloadedPoints.size;
 }
 
 function setupFilterAndSearch() {
@@ -781,11 +856,13 @@ function setupFilterAndSearch() {
   }
 
   document.getElementById("btn-reset-progress")?.addEventListener("click", () => {
-    if (confirm("Kya aap saare completed ticks reset karna chahte hain?")) {
+    if (confirm("Kya aap saare completed aur downloaded ticks reset karna chahte hain?")) {
       completedPoints.clear();
+      downloadedPoints.clear();
       allShorts.forEach((s) => { s.doneOutputs = []; });
       saveShortsData();
       saveCompletedState();
+      saveDownloadedState();
       renderAllShortsCards();
     }
   });
@@ -1134,10 +1211,12 @@ function applyFilterAndSearch() {
     const num = parseInt(card.dataset.num, 10);
     const title = card.dataset.title || "";
     const isDone = completedPoints.has(num);
+    const isDl = downloadedPoints.has(num);
 
     let matchesFilter = true;
     if (currentFilter === "pending" && isDone) matchesFilter = false;
     if (currentFilter === "completed" && !isDone) matchesFilter = false;
+    if (currentFilter === "downloaded" && !isDl) matchesFilter = false;
 
     let matchesSearch = true;
     if (searchTerm) {
@@ -1485,6 +1564,9 @@ window.renameDownloadCurrentShort = async function (download) {
   renameDownloadRunning = false;
   if (res && res.success) {
     const d = res.data || {};
+    if (d.matchedNumber !== undefined && d.matchedNumber !== null && download !== false) {
+      markCardDownloaded(Number(d.matchedNumber), true);
+    }
     updateGlobalStatus(`✓ Rename + Download ho gaya: "${d.oldTitle || ""}" → "${d.newTitle || ""}"${d.downloadLocation ? ` (Download: ${d.downloadLocation})` : ""}`, "success");
   } else {
     updateGlobalStatus(`⚠️ Rename + Download nahi hua: ${res?.error || "NotebookLM se response nahi mila."}`, "error");
@@ -1549,7 +1631,7 @@ function startAiAutoPolling() {
     if (d && d.status) {
       const a = nlmState.aiAuto || {};
       if (d.counts) a.counts = d.counts;
-      if (Array.isArray(d.items)) a.items = d.items;
+      if (Array.isArray(d.items)) { a.items = d.items; syncDownloadedFromAiItems(d.items); }
       a.status = d.status;
       nlmState.aiAuto = a;
       persistState({ aiAuto: a });
@@ -1576,7 +1658,7 @@ function finalizeAiAuto(res, source) {
   const d = (res && res.data) || {};
   const a = nlmState.aiAuto || {};
   if (d.counts) a.counts = d.counts;
-  if (Array.isArray(d.items)) a.items = d.items;
+  if (Array.isArray(d.items)) { a.items = d.items; syncDownloadedFromAiItems(d.items); }
   if (d.status) a.status = d.status;
   if (d.quotaError) a.quotaError = d.quotaError;
   if (d.nextResumeAt) a.nextResumeAt = d.nextResumeAt;
@@ -1656,7 +1738,7 @@ function startAiExistingPolling() {
     if (d && d.status && d.mode === "existing") {
       const a = nlmState.aiExisting || {};
       if (d.counts) a.counts = d.counts;
-      if (Array.isArray(d.items)) a.items = d.items;
+      if (Array.isArray(d.items)) { a.items = d.items; syncDownloadedFromAiItems(d.items); }
       a.status = d.status;
       nlmState.aiExisting = a;
       persistState({ aiExisting: a });
@@ -1683,7 +1765,7 @@ function finalizeAiExisting(res, source) {
   const d = (res && res.data) || {};
   const a = nlmState.aiExisting || {};
   if (d.counts) a.counts = d.counts;
-  if (Array.isArray(d.items)) a.items = d.items;
+  if (Array.isArray(d.items)) { a.items = d.items; syncDownloadedFromAiItems(d.items); }
   if (d.status) a.status = d.status;
   if (d.quotaError) a.quotaError = d.quotaError;
   nlmState.aiExisting = a;
@@ -1753,7 +1835,7 @@ async function resumeAiExistingAfterReload() {
   const d = res && res.data;
   if (d && d.status && d.mode === "existing") {
     if (d.counts) a.counts = d.counts;
-    if (Array.isArray(d.items)) a.items = d.items;
+    if (Array.isArray(d.items)) { a.items = d.items; syncDownloadedFromAiItems(d.items); }
     a.status = d.status;
     persistState({ aiExisting: a });
     renderAiExistingPanel();
@@ -1890,7 +1972,7 @@ async function resumeAiAutoAfterReload() {
   const d = res && res.data;
   if (d && d.status) {
     if (d.counts) a.counts = d.counts;
-    if (Array.isArray(d.items)) a.items = d.items;
+    if (Array.isArray(d.items)) { a.items = d.items; syncDownloadedFromAiItems(d.items); }
     a.status = d.status;
     persistState({ aiAuto: a });
     renderAiAutoPanel();
