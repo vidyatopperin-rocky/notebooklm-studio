@@ -1,3 +1,24 @@
+v7.10.1 (27 Nov 2026) - AI Auto: BANE HUE items ka rename + download (Rocky ka spec, 27 Nov):
+  1. Naya mode (Rocky): jo Video/Audio PEHLE SE bane hue hain (Samvidhan notebook: 80 Audio +
+     87 Shorts), unka bhi wahi rename + download — na kuch bhejna, na ~30 min wait. Dashboard ke
+     naye button "Bane hue ka rename + download karo" se poori prompt list se match hota hai.
+  2. content.js: rename pass ko shared helper autoAiRenamePass() mein nikala — batch mode
+     (autoAiFlow) aur existing mode (autoAiExistingFlow) dono wahi use karte hain, isliye batch
+     flow ka behaviour wahi hai. autoAiExistingFlow(): no-send/no-wait, seedha pass; type filter
+     NAHI (ek hi prompt ka Audio aur Video dono ko wahi title milta hai — expected, duplicate
+     nahi); progress chrome.storage.local (nlm_auto_ai, mode "existing") mein — reload/stop ke
+     baad dobara chalao to sirf bache hue items (pehle se done/skip hue dobara nahi khulte,
+     failed dobara try hote hain). NLM_COMMAND mode auto_ai_existing; auto_ai_status dono modes
+     ki progress batata hai. Test hook mein autoAiExistingFlow + autoAiRenamePass export.
+  3. app.js + index.html: AI Auto panel mein naya button + alag status line (check/rename/
+     download/done/skip/fail), alag record nlmState.aiExisting (reload se bachta hai), Stop
+     button dono modes ko rokta hai, reload ke baad status dobara sync hota hai.
+  4. NOT VERIFIED (pehle real run mein dekhna hai): Studio list ki row kholne/band karne ke
+     selectors (live page par verify nahi hue — fallback + log hai); audio ka View prompt menu
+     fallback; 167 items ka pass kitna time lega (har item ~10-20 sec — poora pass ~30-60 min
+     ho sakta hai). Pehla test: maujooda notebook mein SIRF ek artifact par, aur test ke baad
+     title wapas karke revert karo (Rocky ka rule, 27 Nov).
+
 v7.10.0 (27 Nov 2026) - AI Auto: khud rename + download (Rocky ka spec, 27 Nov):
   1. Naya flow (Rocky): RUN -> prompts ek-ek karke bhejo -> ~15 video ke baad NotebookLM limit khatam
      (exact number NotebookLM par depend karta hai, code mein hardcode nahi hai) -> ~30 min wait ->

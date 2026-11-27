@@ -241,6 +241,7 @@ let nlmState = {
   resumeAtMs: null,
   lastMessage: "",
   aiAuto: null,   // v7.10.0: AI Auto batch record {enabled, batchStart, batchEnd, sentNumbers, sentAt, status, counts, items, nextResumeAt, quotaError}
+  aiExisting: null,   // v7.10.1: bane hue items ka record {enabled, mode:"existing", status, counts, items, startedAt}
   settings: { allowLater: false, focusTab: true, autoResume: false, waitFinish: false },
   log: [],
   updatedAt: 0
@@ -1508,18 +1509,22 @@ let aiAutoPollTimer = null;
 let aiAutoSettled = false;
 let aiAutoRunAuto = false;
 let aiAutoStopPending = false;   // bhejte waqt Stop daba diya — pass shuru hi mat karo
+let aiExistingRunning = false;   // v7.10.1: bane hue items wala pass chal raha hai
+let aiExistingSettled = false;
+let aiExistingPollTimer = null;
 
 function setupAiAutoControls() {
   document.getElementById("btn-ai-auto-start")?.addEventListener("click", () => window.startAiAutoFlow());
   document.getElementById("btn-ai-auto-stop")?.addEventListener("click", () => window.stopAiAutoFlow());
+  document.getElementById("btn-ai-existing-start")?.addEventListener("click", () => window.startAiExistingFlow());
 }
 
 function renderAiAutoPanel() {
   const box = document.getElementById("ai-auto-status");
   const startBtn = document.getElementById("btn-ai-auto-start");
   const stopBtn = document.getElementById("btn-ai-auto-stop");
-  if (startBtn) startBtn.disabled = !!aiAutoRunning;
-  if (stopBtn) stopBtn.disabled = !aiAutoRunning;
+  if (startBtn) startBtn.disabled = !!(aiAutoRunning || aiExistingRunning);
+  if (stopBtn) stopBtn.disabled = !(aiAutoRunning || aiExistingRunning);
   if (!box) return;
   const a = nlmState.aiAuto;
   if (!a) { box.textContent = "Abhi koi AI Auto run nahi hua. Start dabao to pehle batch bhejega, phir ~30 min wait karke khud rename + download karega."; return; }
@@ -1615,6 +1620,149 @@ function finalizeAiAuto(res, source) {
   updateGlobalStatus(msg, "error");
 }
 
+// ================= v7.10.1: AI Auto — BANE HUE items (Rocky, 27 Nov 2026) =================
+// Pehle se bane hue Video/Audio items ka rename + download — kuch bheja nahi jata, ~30 min wait
+// bhi nahi hota. Poori dashboard prompt list se match hota hai. Ek hi prompt ka Audio aur Video
+// dono ko wahi title milta hai — ye normal hai. Stop dabane par wahi rukega; dobara chalane par
+// content script pichle run ki state se sirf bache hue items karega (rename ho chuke / skip ho
+// chuke dobara nahi khulenge).
+function renderAiExistingPanel() {
+  const box = document.getElementById("ai-existing-status");
+  const startBtn = document.getElementById("btn-ai-existing-start");
+  const stopBtn = document.getElementById("btn-ai-auto-stop");
+  if (startBtn) startBtn.disabled = !!(aiAutoRunning || aiExistingRunning);
+  if (stopBtn) stopBtn.disabled = !(aiAutoRunning || aiExistingRunning);
+  if (!box) return;
+  const a = nlmState.aiExisting;
+  if (!a) { box.textContent = "Pehle se bane hue Video/Audio items (jaise Samvidhan notebook ke 80 Audio + 87 Shorts) — kuch bheje bina, seedha rename + download. Har item ka prompt dashboard prompts se milega; ek hi prompt ke Audio aur Video ko wahi title milega, ye normal hai."; return; }
+  const c = a.counts || {};
+  const labels = { renaming: "🏷️ Bane hue items check kar raha hai…", done: "✅ Poora ho gaya", stopped: "⏹ Roka gaya", quota: "🛑 Limit khatam — pass ruka", "no-prompts": "⚠️ Dashboard mein koi prompt nahi", unknown: "❓ Status nahi mila" };
+  box.textContent = (labels[a.status] || a.status || "") + " · prompts: " + (c.sent || 0) + " · check: " + (c.checked || 0) + " · rename: " + (c.renamed || 0) + " · download: " + (c.downloaded || 0) + " · pehle se done: " + (c.done || 0) + " · skip: " + (c.skipped || 0) + " · fail: " + (c.failed || 0);
+}
+
+function stopAiExistingPolling() {
+  if (aiExistingPollTimer) { clearTimeout(aiExistingPollTimer); aiExistingPollTimer = null; }
+}
+function startAiExistingPolling() {
+  stopAiExistingPolling();
+  const tick = async () => {
+    if (!aiExistingRunning) return;
+    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status" }, 15000);
+    const d = res && res.data;
+    if (d && d.status && d.mode === "existing") {
+      const a = nlmState.aiExisting || {};
+      if (d.counts) a.counts = d.counts;
+      if (Array.isArray(d.items)) a.items = d.items;
+      a.status = d.status;
+      nlmState.aiExisting = a;
+      persistState({ aiExisting: a });
+      renderAiExistingPanel();
+      if (["done", "stopped", "quota", "no-prompts"].indexOf(d.status) >= 0) {
+        finalizeAiExisting({ success: d.status === "done", quotaExhausted: d.status === "quota", error: d.quotaError || "", data: d }, "poll");
+        return;
+      }
+    }
+    aiExistingPollTimer = setTimeout(tick, 30000);
+  };
+  aiExistingPollTimer = setTimeout(tick, 30000);
+}
+
+function finalizeAiExisting(res, source) {
+  if (aiExistingSettled) return;
+  aiExistingSettled = true;
+  aiExistingRunning = false;
+  stopAiExistingPolling();
+  const d = (res && res.data) || {};
+  const a = nlmState.aiExisting || {};
+  if (d.counts) a.counts = d.counts;
+  if (Array.isArray(d.items)) a.items = d.items;
+  if (d.status) a.status = d.status;
+  if (d.quotaError) a.quotaError = d.quotaError;
+  nlmState.aiExisting = a;
+  persistState({ aiExisting: a });
+  renderAiExistingPanel();
+  const c = a.counts || {};
+  if (res && res.success) {
+    const msg = "🤖 Bane hue items poora: " + (c.checked || 0) + " check, " + (c.renamed || 0) + " rename + " + (c.downloaded || 0) + " download, " + (c.done || 0) + " pehle se done, " + (c.skipped || 0) + " skip, " + (c.failed || 0) + " fail.";
+    addLog(msg, "success");
+    updateGlobalStatus("✅ " + msg, "success");
+    return;
+  }
+  if (d.status === "quota" || (res && res.quotaExhausted)) {
+    addLog("🛑 Bane hue items: limit aayi (" + ((res && res.error) || d.quotaError || "AI usage limit reached.") + ") — pass ruka. Dobara chalane par bache hue items honge.", "error");
+    updateGlobalStatus("🛑 Bane hue items: limit aayi — pass ruka.", "error");
+    return;
+  }
+  if (d.status === "stopped") {
+    addLog("⏹ Bane hue items wala pass rok diya gaya.", "ready");
+    updateGlobalStatus("⏹ Bane hue items wala pass rok diya gaya.", "ready");
+    return;
+  }
+  if (res && res.timedOut) {
+    addLog("⌛ Bane hue items: NotebookLM se jawab nahi aaya — pass abhi bhi wahan chal raha ho sakta hai. Dobara chalao, sirf bache hue items honge.", "error");
+    updateGlobalStatus("⌛ Bane hue items: jawab nahi aaya (timeout) — progress extension mein save hai.", "error");
+    return;
+  }
+  const msg = "⚠️ Bane hue items poora nahi hua: " + ((res && res.error) || "unknown error");
+  addLog(msg + " (status: " + (d.status || "?") + ")", "error");
+  updateGlobalStatus(msg, "error");
+}
+
+window.startAiExistingFlow = async function () {
+  if (aiAutoRunning || aiExistingRunning || batchRunning) { updateGlobalStatus("⏳ Pehle se ek batch / AI Auto chal raha hai — khatam hone do ya Stop dabao.", "ready"); return; }
+  const items = allShorts.filter((s) => s && s.prompt && String(s.prompt).trim())
+    .map((s) => ({ number: s.number, title: s.title, prompt: String(s.prompt || "").slice(0, 3000), types: outputsOf(s) }));
+  if (!items.length) {
+    alert("⚠️ Dashboard mein koi prompt nahi hai.\n\nPehle prompts paste karo, phir dobara chalao.");
+    return;
+  }
+  const ok = confirm("🤖 Bane hue items ka rename + download karein?\n\n• Kuch bheja NAHI jayega, aur ~30 min wait bhi NAHI hoga — NotebookLM mein pehle se bane hue Video/Audio items hi check honge.\n• Har item ka prompt padh ke dashboard ke " + items.length + " prompts se milayega — mila to sahi title + download, nahi mila to skip.\n• Ek hi prompt se bana Audio aur Video dono ko wahi title mil sakta hai — ye normal hai.\n• Stop dabane par wahi rukega, aur dobara chalane par sirf bache hue items honge.");
+  if (!ok) return;
+  nlmState.aiExisting = {
+    enabled: true, mode: "existing", status: "renaming",
+    counts: { sent: items.length, checked: 0, renamed: 0, downloaded: 0, done: 0, skipped: 0, failed: 0 },
+    items: [], startedAt: Date.now()
+  };
+  persistState({ aiExisting: nlmState.aiExisting });
+  renderAiExistingPanel();
+  renderAiAutoPanel();
+  aiExistingRunning = true; aiExistingSettled = false;
+  updateGlobalStatus("🤖 Bane hue items ka rename + download chal raha hai...", "ready");
+  addLog("🤖 Bane hue items: " + items.length + " prompts se match kar rahe hain — kuch bheja nahi jayega.", "ready");
+  startAiExistingPolling();
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_existing", prompts: items, download: true, focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
+  finalizeAiExisting(res, "command");
+};
+
+// Dashboard reload hua jab bane hue items wala pass chal raha tha: content script se status
+// dobara lo, chal raha ho to polling wapas shuru karo (dobara shuru mat karo).
+async function resumeAiExistingAfterReload() {
+  const a = nlmState.aiExisting;
+  if (!a || !a.enabled) return;
+  if (a.status !== "renaming") return;
+  addLog("♻️ Dashboard reload hua — bane hue items wale pass ka status dobara check kar rahe hain...", "ready");
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status" }, 15000);
+  const d = res && res.data;
+  if (d && d.status && d.mode === "existing") {
+    if (d.counts) a.counts = d.counts;
+    if (Array.isArray(d.items)) a.items = d.items;
+    a.status = d.status;
+    persistState({ aiExisting: a });
+    renderAiExistingPanel();
+    if (d.status === "renaming" || d.autoAiRunning) {
+      aiExistingRunning = true; aiExistingSettled = false;
+      startAiExistingPolling();
+    } else {
+      addLog("🤖 Bane hue items ka aakhri status: " + d.status + ".", "ready");
+    }
+  } else {
+    a.status = "unknown";
+    persistState({ aiExisting: a });
+    renderAiExistingPanel();
+    addLog("⚠️ Bane hue items ka status NotebookLM se nahi mila (extension reload hua hoga) — Studio mein check karo.", "error");
+  }
+}
+
 window.startAiAutoFlow = async function (opts) {
   const auto = !!(opts && opts.auto === true);
   if (aiAutoRunning || batchRunning) { if (!auto) updateGlobalStatus("⏳ Pehle se ek batch / AI Auto chal raha hai — khatam hone do ya Stop dabao.", "ready"); return; }
@@ -1700,6 +1848,16 @@ window.startAiAutoFlow = async function (opts) {
 };
 
 window.stopAiAutoFlow = function () {
+  // v7.10.1: bane hue items wala pass chal raha ho to usi ko roko (shared auto_ai_stop signal).
+  const ex = nlmState.aiExisting;
+  if (aiExistingRunning || (ex && ex.status === "renaming")) {
+    if (ex) { ex.enabled = false; persistState({ aiExisting: ex }); }
+    sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_stop" }, 10000).catch(() => {});
+    addLog("⏹ Bane hue items wala pass rokne ka signal bheja — chal raha item khatam hote hi ruk jayega.", "ready");
+    updateGlobalStatus("⏹ Bane hue items wala pass rok rahe hain...", "ready");
+    renderAiExistingPanel();
+    return;
+  }
   const a = nlmState.aiAuto;
   if (!aiAutoRunning && !(a && ["waiting", "renaming", "sending"].indexOf(a.status) >= 0)) {
     updateGlobalStatus("AI Auto abhi chal nahi raha.", "ready");
@@ -2433,7 +2591,9 @@ async function initResumeState() {
   renderResumeBanner();
   addLog("Dashboard ready.", "ready");
   renderAiAutoPanel();
+  renderAiExistingPanel();
   resumeAiAutoAfterReload();
+  resumeAiExistingAfterReload();
 
   // pending auto-resume after a reload / browser restart
   if (set.autoResume && nlmState.status === "limit" && nlmState.resumeAtMs) {

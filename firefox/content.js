@@ -1950,6 +1950,122 @@ const NLM_LANG_PACKS = {
     try { return window.__nlmAutoAiState || null; } catch (e) { return null; }
   }
 
+  // Resume sets (pure function, unit-testable): pichle run ke items se banao — doneTitleKeys
+  // (type|current-title, title pehle se sahi ya rename ho chuka) aur skipTitleKeys (type|title,
+  // prompt match nahi hua). In sets ki wajah se dobara chalane par ho chuke items khole bina
+  // skip hote hain — na double counting, na dobara prompt padhna. Failed items kisi set mein
+  // nahi aate, isliye dobara try honge.
+  function buildAutoAiResumeSets(items) {
+    const doneTitleKeys = new Set();
+    const skipTitleKeys = new Set();
+    for (const e of (items || [])) {
+      if (!e) continue;
+      if ((e.result === "done" || e.result === "renamed") && e.type) doneTitleKeys.add(e.type + "|" + (e.newTitle || e.title));
+      if (e.result === "skipped" && e.type && e.title) skipTitleKeys.add(e.type + "|" + e.title);
+    }
+    return { doneTitleKeys: doneTitleKeys, skipTitleKeys: skipTitleKeys };
+  }
+  // ---- AI Auto rename pass (SHARED, v7.10.1): Studio list ek-ek karke, har item ka prompt
+  // padh ke `sent` prompts se milao -> mila to rename + download, nahi mila to skip. Batch mode
+  // (autoAiFlow) aur existing mode (autoAiExistingFlow) dono isi ko use karte hain, taaki logic
+  // ek jagah rahe. opts.batchTypes: Set ho to sirf un types ke items process hote hain (batch
+  // mode — is batch mein jo type bheja hi nahi gaya, wo skip); null ho to sab types (existing
+  // mode — ek hi prompt ka Audio aur Video dono ko wahi title milta hai, ye normal hai, duplicate
+  // nahi). Resume: state.items se do sets bante hain — doneTitleKeys (type|current-title, jin
+  // items ka title pehle se sahi hai ya rename ho chuka) aur skipTitleKeys (type|title, jin ka
+  // prompt match nahi hua). Dobara chalane par ye items khole bina skip hote hain — na double
+  // counting, na dobara prompt padhna. Failed items kisi set mein nahi aate — dobara try honge.
+  async function autoAiRenamePass(sent, opts, state, save, record) {
+    opts = opts || {};
+    const batchTypes = opts.batchTypes || null;
+    const resumeSets = buildAutoAiResumeSets(state.items);
+    const doneTitleKeys = resumeSets.doneTitleKeys;
+    const skipTitleKeys = resumeSets.skipTitleKeys;
+    const listed = await listStudioArtifacts();
+    const seenTitles = new Set();   // khole gaye items (original title se — rename ke baad title badal jata hai)
+    const doneNumbers = new Set();  // jin prompt numbers ka faisla ho gaya
+    for (const item of listed.items) {
+      if (autoAiStopRequested) {
+        await save({ status: "stopped" });
+        return { outcome: "stopped" };
+      }
+      const q = checkQuotaExhaustion(null);
+      if (q.exhausted) {
+        await save({ status: "quota", quotaError: q.error || "" });
+        return { outcome: "quota", quotaError: q.error || "" };
+      }
+      const key = item.type + "|" + item.title;
+      if (seenTitles.has(key)) continue;
+      if (skipTitleKeys.has(key)) continue; // pichle run mein prompt match nahi hua tha — dobara mat kholo
+      // Title pehle se kisi bheje gaye prompt ke title jaisa hai — kholo mat, done mano.
+      const titleMatch = sent.find((p) => p.title && String(p.title).trim() && String(p.title).trim() === item.title);
+      if (titleMatch) {
+        const doneKey = item.type + "|" + item.title;
+        if (doneTitleKeys.has(doneKey)) continue; // pichle run mein gin chuke — dobara mat gino
+        if (!doneNumbers.has(titleMatch.number)) {
+          doneNumbers.add(titleMatch.number);
+          state.counts.done++;
+          record({ title: item.title, type: item.type, number: titleMatch.number, result: "done", reason: "title pehle se sahi hai" });
+          doneTitleKeys.add(doneKey);
+          await save({});
+        }
+        continue; // is prompt ka faisla ho chuka
+      }
+      if (batchTypes && item.type !== "unknown" && !batchTypes.has(item.type)) {
+        state.counts.skipped++;
+        record({ title: item.title, type: item.type, result: "skipped", reason: "is batch mein is type ka prompt bheja hi nahi gaya" });
+        await save({});
+        continue;
+      }
+      seenTitles.add(key);
+      const opened = await openStudioArtifact(item);
+      if (!opened.ok) {
+        state.counts.failed++;
+        record({ title: item.title, type: item.type, result: "failed", reason: opened.error });
+        await save({});
+        continue;
+      }
+      try {
+        if (item.type === "audio") {
+          const paused = await pauseAudioPlayback();
+          if (!paused.ok) { /* log only — audio bajta rahega, kaam nahi rukega */ }
+        }
+        const pr = await readPromptFromDetailForAudio(item);
+        if (!pr.ok) {
+          state.counts.failed++;
+          record({ title: item.title, type: item.type, result: "failed", reason: pr.error });
+          continue;
+        }
+        state.counts.checked++;
+        const cls = classifyAutoAiItem({ title: item.title, promptText: pr.prompt, type: item.type }, sent);
+        if (cls.action === "skip") {
+          if (cls.matchedNumber !== undefined && cls.matchedNumber !== null) doneNumbers.add(cls.matchedNumber);
+          if (cls.reason === "done") state.counts.done++; else state.counts.skipped++;
+          record({ title: item.title, type: item.type, number: cls.matchedNumber !== undefined ? cls.matchedNumber : null, result: cls.reason === "done" ? "done" : "skipped", reason: cls.detail });
+          if (cls.reason === "done") doneTitleKeys.add(item.type + "|" + item.title);
+          else skipTitleKeys.add(key);
+          continue;
+        }
+        if (cls.matchedNumber !== undefined && cls.matchedNumber !== null) doneNumbers.add(cls.matchedNumber);
+        const core = await renameDownloadCore(sent, { download: opts.download !== false, preReadPrompt: pr.prompt, moreBtn: item.moreBtn || null });
+        if (core.success) {
+          state.counts.renamed++;
+          if (core.data && core.data.downloadLocation) state.counts.downloaded++;
+          record({ title: item.title, type: item.type, number: core.data ? core.data.matchedNumber : cls.matchedNumber, result: "renamed", newTitle: core.data ? core.data.newTitle : cls.matchedTitle, download: core.data ? core.data.downloadLocation : null, wasDefault: !!cls.wasDefault });
+          if (core.data && core.data.newTitle) doneTitleKeys.add(item.type + "|" + core.data.newTitle);
+        } else {
+          state.counts.failed++;
+          record({ title: item.title, type: item.type, number: cls.matchedNumber !== undefined ? cls.matchedNumber : null, result: "failed", reason: core.error });
+        }
+      } finally {
+        await closeArtifactDetail();
+        await pause(800);
+      }
+      await save({});
+    }
+    return { outcome: "done" };
+  }
+
   // ---- AI Auto orchestrator: EK batch ke liye (wait + rename/download pass) ----
   async function autoAiFlow(prompts, opts) {
     opts = opts || {};
@@ -1963,6 +2079,7 @@ const NLM_LANG_PACKS = {
       for (const t of ts) batchTypes.add(String(t).toLowerCase());
     }
     const state = {
+      mode: "batch",
       batchStart: (opts.batchStart !== undefined && opts.batchStart !== null) ? opts.batchStart : null,
       batchEnd: (opts.batchEnd !== undefined && opts.batchEnd !== null) ? opts.batchEnd : null,
       sentNumbers: Array.isArray(opts.sentNumbers) && opts.sentNumbers.length ? opts.sentNumbers : sent.map((p) => p.number),
@@ -1996,84 +2113,80 @@ const NLM_LANG_PACKS = {
         return { success: false, error: "2 ghante wait karne par bhi generation khatam nahi hui (" + wait.polls + " baar check kiya) — baad mein dobara chalao, rename pass usi batch par dobara chalega.", data: state };
       }
       await save({ status: "renaming" });
-      const listed = await listStudioArtifacts();
-      const seenTitles = new Set();   // khole gaye items (original title se — rename ke baad title badal jata hai)
-      const doneNumbers = new Set();  // jin prompt numbers ka faisla ho gaya
-      for (const item of listed.items) {
-        if (autoAiStopRequested) {
-          await save({ status: "stopped" });
-          return { success: false, error: "AI Auto user ne roka.", data: state };
-        }
-        const q = checkQuotaExhaustion(null);
-        if (q.exhausted) {
-          await save({ status: "quota", quotaError: q.error || "" });
-          return { success: false, quotaExhausted: true, error: q.error || "AI usage limit reached.", data: state };
-        }
-        const key = item.type + "|" + item.title;
-        if (seenTitles.has(key)) continue;
-        // Title pehle se kisi bheje gaye prompt ke title jaisa hai — kholo mat, done mano.
-        const titleMatch = sent.find((p) => p.title && String(p.title).trim() && String(p.title).trim() === item.title);
-        if (titleMatch && !doneNumbers.has(titleMatch.number)) {
-          doneNumbers.add(titleMatch.number);
-          state.counts.done++;
-          record({ title: item.title, number: titleMatch.number, result: "done", reason: "title pehle se sahi hai" });
-          await save({});
-          continue;
-        }
-        if (titleMatch) continue; // is prompt ka faisla ho chuka
-        if (item.type !== "unknown" && !batchTypes.has(item.type)) {
-          state.counts.skipped++;
-          record({ title: item.title, type: item.type, result: "skipped", reason: "is batch mein is type ka prompt bheja hi nahi gaya" });
-          await save({});
-          continue;
-        }
-        seenTitles.add(key);
-        const opened = await openStudioArtifact(item);
-        if (!opened.ok) {
-          state.counts.failed++;
-          record({ title: item.title, type: item.type, result: "failed", reason: opened.error });
-          await save({});
-          continue;
-        }
-        try {
-          if (item.type === "audio") {
-            const paused = await pauseAudioPlayback();
-            if (!paused.ok) { /* log only — audio bajta rahega, kaam nahi rukega */ }
-          }
-          const pr = await readPromptFromDetailForAudio(item);
-          if (!pr.ok) {
-            state.counts.failed++;
-            record({ title: item.title, type: item.type, result: "failed", reason: pr.error });
-            continue;
-          }
-          state.counts.checked++;
-          const cls = classifyAutoAiItem({ title: item.title, promptText: pr.prompt, type: item.type }, sent);
-          if (cls.action === "skip") {
-            if (cls.matchedNumber !== undefined && cls.matchedNumber !== null) doneNumbers.add(cls.matchedNumber);
-            if (cls.reason === "done") state.counts.done++; else state.counts.skipped++;
-            record({ title: item.title, number: cls.matchedNumber !== undefined ? cls.matchedNumber : null, result: cls.reason === "done" ? "done" : "skipped", reason: cls.detail });
-            continue;
-          }
-          if (cls.matchedNumber !== undefined && cls.matchedNumber !== null) doneNumbers.add(cls.matchedNumber);
-          const core = await renameDownloadCore(sent, { download: opts.download !== false, preReadPrompt: pr.prompt, moreBtn: item.moreBtn || null });
-          if (core.success) {
-            state.counts.renamed++;
-            if (core.data && core.data.downloadLocation) state.counts.downloaded++;
-            record({ title: item.title, number: core.data ? core.data.matchedNumber : cls.matchedNumber, result: "renamed", newTitle: core.data ? core.data.newTitle : cls.matchedTitle, download: core.data ? core.data.downloadLocation : null, wasDefault: !!cls.wasDefault });
-          } else {
-            state.counts.failed++;
-            record({ title: item.title, number: cls.matchedNumber !== undefined ? cls.matchedNumber : null, result: "failed", reason: core.error });
-          }
-        } finally {
-          await closeArtifactDetail();
-          await pause(800);
-        }
-        await save({});
+      const pass = await autoAiRenamePass(sent, { download: opts.download !== false, batchTypes: batchTypes, resumeKeys: null }, state, save, record);
+      if (pass.outcome === "stopped") {
+        await save({ status: "stopped" });
+        return { success: false, error: "AI Auto user ne roka.", data: state };
+      }
+      if (pass.outcome === "quota") {
+        await save({ status: "quota", quotaError: pass.quotaError || "" });
+        return { success: false, quotaExhausted: true, error: pass.quotaError || "AI usage limit reached.", data: state };
       }
       await save({ status: "done" });
       const c = state.counts;
       return { success: true, action: "auto_ai",
         message: "AI Auto poora hua: " + c.checked + " check kiye, " + c.renamed + " rename + " + c.downloaded + " download, " + c.done + " pehle se done, " + c.skipped + " skip, " + c.failed + " fail.",
+        data: state };
+    } finally { autoAiRunning = false; }
+  }
+
+  // ---- v7.10.1: AI Auto — BANE HUE items (Rocky, 27 Nov 2026) ----
+  // Samvidhan notebook mein 80 Audio + 87 Shorts PEHLE SE bane hue hain, unke prompts dashboard
+  // ke database mein hain. Inke liye na kuch bhejna hai, na ~30 min wait — seedha wahi shared
+  // rename pass (autoAiRenamePass) chalao, poori prompt list se match karke. Type filter NAHI
+  // hai: ek hi prompt ka Audio aur Video dono ko wahi title milta hai, ye normal hai.
+  // Resume: pichla existing run aadha ruka tha (stopped/quota) to usi state se dobara shuru —
+  // counts/items wahi rehte hain, aur rename pass pehle se ho chuke items ko khole bina skip
+  // karta hai (doneTitleKeys/skipTitleKeys). Poora ho chuka run dobara chalao to fresh scan hota
+  // hai (tab tak bane naye items bhi aa jayein).
+  async function autoAiExistingFlow(prompts, opts) {
+    opts = opts || {};
+    if (autoAiRunning) return { success: false, error: "AI Auto pehle se chal raha hai — pehle usko rok do ya khatam hone do." };
+    autoAiRunning = true;
+    autoAiStopRequested = false;
+    const all = Array.isArray(prompts) ? prompts.filter((p) => p && p.prompt && String(p.prompt).trim()) : [];
+    try {
+      if (!all.length) {
+        const empty = { mode: "existing", batchStart: null, batchEnd: null, sentNumbers: [], sentAt: Date.now(), status: "no-prompts",
+          counts: { sent: 0, checked: 0, renamed: 0, downloaded: 0, done: 0, skipped: 0, failed: 0 },
+          items: [], quotaError: "", nextResumeAt: null, updatedAt: Date.now() };
+        await saveAutoAiState(empty);
+        return { success: false, error: "Dashboard mein koi prompt nahi hai — pehle prompts paste karo, phir dobara chalao.", data: empty };
+      }
+      const prev = await loadAutoAiState();
+      const resume = prev && prev.mode === "existing" && (prev.status === "stopped" || prev.status === "quota") && Array.isArray(prev.items);
+      let state;
+      if (resume) {
+        state = prev;
+        if (!Array.isArray(state.items)) state.items = [];
+        if (!state.counts || typeof state.counts !== "object") state.counts = { sent: 0, checked: 0, renamed: 0, downloaded: 0, done: 0, skipped: 0, failed: 0 };
+      } else {
+        state = {
+          mode: "existing", batchStart: null, batchEnd: null,
+          sentNumbers: all.map((p) => p.number), sentAt: Date.now(), status: "renaming",
+          counts: { sent: all.length, checked: 0, renamed: 0, downloaded: 0, done: 0, skipped: 0, failed: 0 },
+          items: [], quotaError: "", nextResumeAt: null, updatedAt: Date.now()
+        };
+      }
+      state.mode = "existing";
+      state.sentNumbers = all.map((p) => p.number);
+      state.counts.sent = all.length;
+      const save = async (patch) => { Object.assign(state, patch, { updatedAt: Date.now() }); await saveAutoAiState(state); return state; };
+      const record = (entry) => { state.items.push(entry); };
+      await save({ status: "renaming" });
+      const pass = await autoAiRenamePass(all, { download: opts.download !== false, batchTypes: null, resumeKeys: null }, state, save, record);
+      if (pass.outcome === "stopped") {
+        await save({ status: "stopped" });
+        return { success: false, error: "Bane hue items wala pass user ne roka.", data: state };
+      }
+      if (pass.outcome === "quota") {
+        await save({ status: "quota", quotaError: pass.quotaError || "" });
+        return { success: false, quotaExhausted: true, error: pass.quotaError || "AI usage limit reached.", data: state };
+      }
+      await save({ status: "done" });
+      const c = state.counts;
+      return { success: true, action: "auto_ai_existing",
+        message: "Bane hue items poora hua: " + c.checked + " check kiye, " + c.renamed + " rename + " + c.downloaded + " download, " + c.done + " pehle se done, " + c.skipped + " skip, " + c.failed + " fail.",
         data: state };
     } finally { autoAiRunning = false; }
   }
@@ -2220,6 +2333,9 @@ const NLM_LANG_PACKS = {
               // v7.10.0: poora AI Auto pass (wait + rename/download). Ghanton chal sakta hai — dashboard
               // status poll karta hai, aur reload hone par bhi progress chrome.storage.local mein safe hai.
               res = await autoAiFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { batchStart: msg.batchStart, batchEnd: msg.batchEnd, sentNumbers: msg.sentNumbers, download: msg.download !== false });
+            } else if (msg.mode === "auto_ai_existing") {
+              // v7.10.1: sirf pehle se bane hue items — na bhejna, na wait; seedha rename/download pass.
+              res = await autoAiExistingFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { download: msg.download !== false });
             } else if (msg.mode === "auto_ai_status") {
               const st = await loadAutoAiState();
               res = { success: true, action: "auto_ai_status", data: Object.assign({}, st || {}, { isGenerating: isGeneratingActive(), isBusy: isBusy, autoAiRunning: autoAiRunning }) };
@@ -2266,7 +2382,7 @@ const NLM_LANG_PACKS = {
     globalThis.__NLM_TEST__ = {
       generateVideoFlow, generateAudioFlow, generateStudioFlow, applyChoices, selectedChoices, getActiveDialog, findChoice, configureChatFlow, researchFlow, scanUiFlow, chatFlow, addSourceFlow, setLanguageFlow, checkQuotaExhaustion, getFormatRadioButtons,
       isRadioSelected, getActiveVideoDialog, clickGenerateButtonInDialog, isGeneratingActive, renameDownloadFlow, matchPromptToTitle,
-      isDefaultTitle, classifyAutoAiItem, listStudioArtifactsSync, waitForGenerationDone, autoAiFlow, loadAutoAiState, renameDownloadCore
+      isDefaultTitle, classifyAutoAiItem, listStudioArtifactsSync, waitForGenerationDone, autoAiFlow, autoAiExistingFlow, autoAiRenamePass, buildAutoAiResumeSets, loadAutoAiState, renameDownloadCore
     };
   }
 
