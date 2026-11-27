@@ -23,7 +23,15 @@ const NLM_CONFIG = {
     cinematic:     ["immersive", "cinematic", "16:9", "सिनेमैटिक"],
     explainer:     ["structured", "explainer", "एक्सप्लेनर"],
     customTopic:   ["custom topic", "customised topic", "customized topic", "custom", "describe your own", "अपना विषय", "कस्टम"],
-    generating:    ["generating", "creating", "जनरेट हो रहा", "बन रहा है"]
+    generating:    ["generating", "creating", "जनरेट हो रहा", "बन रहा है"],
+    viewPrompt:     ["view prompt", "prompt and sources"],
+    download:       ["download", "डाउनलोड"],
+    // v7.10.0: AI Auto — Studio list rows + artifact detail navigation (labels verified live 27 Nov 2026
+    // only for Video detail + Audio row menu; the row-open/back/pause selectors below are NOT verified
+    // on the live page — every use logs which fallback worked so the first real run teaches us).
+    moreOptions:    ["more options", "more actions"],
+    backClose:      ["back", "go back", "close"],
+    pauseWord:      ["pause"],
   },
   // phrases (lowercase) that mean "daily limit reached" - scanned in dialogs + toasts/alerts only
   limitPhrases: [
@@ -120,6 +128,8 @@ const NLM_LANG_PACKS = {
   if (oldBox) oldBox.remove();
 
   let isBusy = false;
+  let autoAiRunning = false;        // v7.10.0: AI Auto pass chal raha hai (wait + rename/download, ghanton chal sakta hai)
+  let autoAiStopRequested = false;  // v7.10.0: dashboard se Stop aaya — agle checkpoint par ruk jao
   let selectedAudioFormat = "deep_dive";
 
   function isVisible(el) {
@@ -386,33 +396,23 @@ const NLM_LANG_PACKS = {
 
   function findStudioContainer() {
     ensureStudioTabSelected();
-    const direct = document.querySelector("section.studio-panel, .studio-panel");
-    if (direct && isVisible(direct)) return direct;
-
     const allContainers = document.querySelectorAll(
-      "aside, mat-sidenav, .studio-container, .studio-panel, [role='region'], section, div"
+      "aside, mat-sidenav, .studio-container, .studio-panel, [role='region'], div"
     );
-    let best = null;
-    let bestArea = Infinity;
     for (const c of allContainers) {
       if (c.closest("#nlm-mini-box")) continue;
       const rect = c.getBoundingClientRect();
-      // Studio panel is on the RIGHT side of the page; never match the full-page wrapper or left Sources panel
-      if (rect.left >= window.innerWidth * 0.42 && rect.width > 180 && rect.width < window.innerWidth * 0.65 && rect.height > 200) {
+      if (rect.right > window.innerWidth * 0.45 && rect.width > 180 && rect.height > 200) {
         const text = (c.innerText || c.textContent || "").toLowerCase();
         if (
           (_has(text, NLM_CONFIG.words.audioOverview) && _has(text, NLM_CONFIG.words.videoOverview)) ||
           (text.includes("studio") && text.includes("video"))
         ) {
-          const area = rect.width * rect.height;
-          if (area < bestArea) {
-            bestArea = area;
-            best = c;
-          }
+          return c;
         }
       }
     }
-    return best || document.body;
+    return document.body;
   }
 
   // Open Video Overview Customize Dialog strictly using real interactive controls
@@ -562,24 +562,11 @@ const NLM_LANG_PACKS = {
 
       ta.focus?.();
       ta.click?.();
-
-      if (ta.isContentEditable) {
-        ta.textContent = val;
-        const opts = { bubbles: true, composed: true, cancelable: true };
-        try {
-          ta.dispatchEvent(new InputEvent("beforeinput", { ...opts, data: val, inputType: "insertText" }));
-        } catch (e) {}
-        ta.dispatchEvent(new Event("input", opts));
-        ta.dispatchEvent(new Event("change", opts));
-        try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
-        return (ta.textContent || "").trim().length > 0;
-      }
-
       ta.value = "";
 
       // Native property setter ensures Angular/React/MatInput detects change cleanly
       try {
-        const proto = ta.tagName === "INPUT" ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
+        const proto = window.HTMLTextAreaElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
         if (setter) {
           setter.call(ta, val);
@@ -609,10 +596,9 @@ const NLM_LANG_PACKS = {
 
       return (ta.value || "").trim().length > 0;
     } catch (err) {
-      if (ta.isContentEditable) ta.textContent = val;
-      else ta.value = val;
+      ta.value = val;
       try { window.getSelection?.()?.removeAllRanges?.(); } catch (e) {}
-      return ((ta.isContentEditable ? ta.textContent : ta.value) || "").trim().length > 0;
+      return (ta.value || "").trim().length > 0;
     }
   }
 
@@ -1097,11 +1083,8 @@ const NLM_LANG_PACKS = {
   }
 
   function findVisibleTextarea(dialog) {
-    const scope = dialog || document;
-    for (const sel of ["textarea", "[contenteditable='true']", "input[type='text']"]) {
-      for (const ta of scope.querySelectorAll(sel)) {
-        if (isVisible(ta)) return ta;
-      }
+    for (const ta of (dialog || document).querySelectorAll("textarea, [contenteditable='true'], input[type='text']")) {
+      if (isVisible(ta)) return ta;
     }
     return null;
   }
@@ -1111,31 +1094,20 @@ const NLM_LANG_PACKS = {
   // Real labels read on the live NotebookLM page (Pro test account, 6 Nov 2026). Matching is EXACT on the first text line of a
   // radio / toggle / chip, so "Short" never hits a long description text.
   function _firstLine(el) {
-    let raw = "";
-    try {
-      const clone = el.cloneNode(true);
-      clone.querySelectorAll("mat-icon, .material-icons, .material-symbols-outlined, .material-symbols-rounded").forEach((ic) => ic.remove());
-      raw = clone.innerText || clone.textContent || "";
-    } catch (e) {
-      raw = el.innerText || el.textContent || "";
-    }
-    const lines = raw.split(/\n/).map((s) => s.trim()).filter(Boolean);
+    const lines = (el.innerText || el.textContent || "").split(/\n/).map((s) => s.trim()).filter(Boolean);
     // skip Material icon ligature lines (check, crop_16_9, ...) and the "New!" badge that sit before the real label
     const real = lines.find((s) => !/^(check|checkmark|edit|new!?|[a-z0-9]+(_[a-z0-9]+)+)$/i.test(s));
     return (real || lines[0] || "").toLowerCase();
   }
   function findChoice(dialog, label) {
     const want = String(label || "").trim().toLowerCase();
-    const wantClean = want.replace(/\s*\(default\)\s*$/i, "").trim();
     if (!want) return null;
     let best = null;
     const sel = "mat-radio-button, [role='radio'], [role='option'], mat-button-toggle, button, [role='button'], mat-chip, label, div[tabindex]";
     for (const el of dialog.querySelectorAll(sel)) {
       if (!isVisible(el)) continue;
       const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
-      const first = _firstLine(el);
-      const firstClean = first.replace(/\s*\(default\)\s*$/i, "").trim();
-      if (first === want || aria === want || (wantClean && (firstClean === wantClean || aria === wantClean))) {
+      if (_firstLine(el) === want || aria === want) {
         const rank = (el.tagName === "MAT-RADIO-BUTTON" || el.getAttribute("role") === "radio") ? 0 : (el.tagName === "BUTTON" ? 1 : 2);
         if (!best || rank < best.rank) best = { el, rank };
       }
@@ -1259,61 +1231,6 @@ const NLM_LANG_PACKS = {
     } finally { isBusy = false; }
   }
 
-  function isGeneratedArtifactCard(el) {
-    if (!el) return false;
-    const card = el.closest(".artifact-card, .studio-item, mat-card, [class*='artifact' i]");
-    const scope = card || el;
-    const txt = (scope.innerText || scope.textContent || "").toLowerCase();
-    if (txt.includes("may take a while") || _has(txt, NLM_CONFIG.words.generating)) return true;
-    // Already-created Studio artifacts have menu/action icons like more_vert, play_arrow, download, delete
-    if (card && !el.closest("button[aria-label*='customize' i], button[aria-label*='edit' i]")) {
-      const hasArtifactActions = Array.from(card.querySelectorAll("button, mat-icon")).some((b) => {
-        const t = (b.innerText || b.textContent || "").trim().toLowerCase();
-        const a = (b.getAttribute("aria-label") || "").trim().toLowerCase();
-        return t === "more_vert" || t === "play_arrow" || t === "download" || a.includes("more options") || a.includes("delete");
-      });
-      if (hasArtifactActions) return true;
-    }
-    return false;
-  }
-
-  function findStudioTile(studio, words, excludeWords) {
-    const scope = studio || document;
-    // Priority 0: Exact NotebookLM creation tiles ([data-testid="create-artifact-tile"])
-    const directTiles = scope.querySelectorAll("[data-testid='create-artifact-tile'], .create-artifact-button-container");
-    for (const el of directTiles) {
-      if (!isVisible(el)) continue;
-      const text = (el.innerText || el.textContent || "").trim().toLowerCase();
-      const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
-      if (excludeWords && (_has(text, excludeWords) || _has(aria, excludeWords))) continue;
-      if (_has(text, words) || _has(aria, words)) return el;
-    }
-
-    let best = null;
-    for (const el of scope.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
-      if (!isVisible(el)) continue;
-      const text = (el.innerText || el.textContent || "").trim().toLowerCase();
-      const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
-      if (text.length > 300 && aria.length === 0) continue;
-      if (excludeWords && (_has(text, excludeWords) || _has(aria, excludeWords))) continue;
-      if (!_has(text, words) && !_has(aria, words)) continue;
-      if (text.includes("may take a while") || _has(text, NLM_CONFIG.words.generating)) continue;
-
-      const isArtifact = isGeneratedArtifactCard(el);
-      const isCustomize = _has(text, NLM_CONFIG.words.customize) || _has(aria, NLM_CONFIG.words.customize) || _has(aria, NLM_CONFIG.words.edit);
-      const exactMatch = words.some((w) => text === w || aria === w);
-      let rank = 10;
-      if (!isArtifact && isCustomize) rank = 0;
-      else if (!isArtifact && exactMatch) rank = 1;
-      else if (!isArtifact && text.length <= 45) rank = 2;
-      else if (!isArtifact) rank = 3;
-      else rank = 20;
-
-      if (!best || rank < best.rank) best = { el, rank };
-    }
-    return best ? best.el : null;
-  }
-
   async function generateStudioFlow(outputId, customTopic = null, opts = {}) {
     if (isBusy) {
       return { success: false, busy: true, error: "Busy: previous command is still running in NotebookLM tab. Please wait and retry." };
@@ -1330,30 +1247,15 @@ const NLM_LANG_PACKS = {
         return { success: false, quotaExhausted: true, error: pre.error };
       }
 
-      if (outputId === "video_choice") {
-        const opened = await openVideoOverviewDialog();
-        if (!opened) {
-          return { success: false, error: "Video Overview dialog could not be opened. Make sure a Notebook with sources is open in NotebookLM." };
-        }
-        await pause(350);
-      } else if (outputId === "audio_choice") {
-        const opened = await openAudioOverviewDialog();
-        if (!opened) {
-          return { success: false, error: "Audio Overview dialog could not be opened. Make sure a Notebook with sources is open in NotebookLM." };
-        }
-        await pause(350);
-      } else {
-        const studio = findStudioContainer() || document;
-        const tile = findStudioTile(studio, cfg.tile, cfg.noExclude ? null : OUT.excludeTile);
-        if (!tile) {
-          return { success: false, error: `"${cfg.label}" card not found in the Studio panel (labels/selectors: NLM_CONFIG.outputs).` };
-        }
-        selectElementCleanly(tile);
-        await pause(1200);
+      const studio = findStudioContainer() || document;
+      const tile = findClickableByWords(studio, cfg.tile, cfg.noExclude ? null : OUT.excludeTile, 300);
+      if (!tile) {
+        return { success: false, error: `"${cfg.label}" card not found in the Studio panel (labels/selectors: NLM_CONFIG.outputs).` };
       }
+      selectElementCleanly(tile);
+      await pause(1200);
 
-      let dialog = outputId === "video_choice" ? (getActiveVideoDialog() || getActiveDialog())
-        : (outputId === "audio_choice" ? (getActiveAudioDialog() || getActiveDialog()) : getActiveDialog());
+      let dialog = getActiveDialog();
       if (dialog && cfg.docFormat) {
         const docEl = findChoice(dialog, "Document");
         if (docEl) { selectElementCleanly(docEl); await pause(900); dialog = getActiveDialog() || dialog; }
@@ -1371,11 +1273,10 @@ const NLM_LANG_PACKS = {
       let choiceReport = null;
       if (dialog && Array.isArray(opts.choices) && opts.choices.length) {
         choiceReport = await applyChoices(dialog, opts.choices);
-        dialog = (outputId === "video_choice" ? getActiveVideoDialog() : null) || getActiveDialog() || dialog;
-        const hardMissing = choiceReport.missing.filter((m) => !/\(default\)|^default$/i.test(String(m).trim()));
-        if (hardMissing.length) {
+        dialog = getActiveDialog() || dialog;
+        if (choiceReport.missing.length && choiceReport.missing.includes(opts.choices[0])) {
           await closeActiveDialogIfOpen();
-          return { success: false, error: `Option(s) not found in the ${cfg.label} dialog: ${hardMissing.join(", ")}.`, data: choiceReport };
+          return { success: false, error: `Option(s) not found in the ${cfg.label} dialog: ${choiceReport.missing.join(", ")}.`, data: choiceReport };
         }
       }
       if (dialog && opts.dryRun) {
@@ -1391,21 +1292,11 @@ const NLM_LANG_PACKS = {
           return { success: false, quotaExhausted: true, error: q.error };
         }
         const text = cfg.instruction || topic;
-        if (outputId === "video_choice" && text) {
-          const filled = await fillVideoTopicAsync(text);
-          if (!filled || !verifyVideoTopicFilled(getActiveVideoDialog() || dialog, text)) {
-            await closeActiveDialogIfOpen();
-            return {
-              success: false,
-              error: "🔒 PROMPT SAFETY BLOCK: Prompt text box ('Describe your own') mein fill nahi ho saka. Empty video generation ROK diya gaya hai!"
-            };
-          }
-        } else if (text) {
+        if (text) {
           const ta = findVisibleTextarea(dialog);
           if (ta) { fillTextareaRockSolid(ta, text); await pause(250); }
         }
-        const getDlg = outputId === "video_choice" ? getActiveVideoDialog : (outputId === "audio_choice" ? getActiveAudioDialog : getActiveDialog);
-        const clicked = await clickGenerateWithWait(getDlg, dialog, opts);
+        const clicked = await clickGenerateWithWait(getActiveDialog, dialog, opts);
         if (clicked && clicked.quotaExhausted) {
           await closeActiveDialogIfOpen();
           return { success: false, quotaExhausted: true, error: clicked.error };
@@ -1414,7 +1305,7 @@ const NLM_LANG_PACKS = {
           await closeActiveDialogIfOpen();
           return { success: false, error: `Generate button could not be clicked for ${cfg.label}.` };
         }
-        const conf = await confirmGenerationStarted(getDlg);
+        const conf = await confirmGenerationStarted(getActiveDialog);
         if (conf.quotaExhausted) {
           await closeActiveDialogIfOpen();
           return { success: false, quotaExhausted: true, error: conf.error };
@@ -1470,202 +1361,6 @@ const NLM_LANG_PACKS = {
     }
   }
 
-
-  // ======================= v7.9.0 : Studio Artifact Scan, View Prompt, Rename & Download =======================
-  function getStudioArtifactMenus() {
-    const directPanel = document.querySelector("section.studio-panel, .studio-panel");
-    const studio = (directPanel && isVisible(directPanel)) ? directPanel : findStudioContainer();
-    const hasDirectPanel = !!(directPanel && studio === directPanel);
-    const btns = [];
-
-    // Strategy 1: Exact NotebookLM Studio artifact cards (.artifact-item-button)
-    const cards = (studio || document).querySelectorAll(".artifact-item-button");
-    if (cards.length > 0) {
-      for (const card of cards) {
-        if (!isVisible(card)) continue;
-        const btn = card.querySelector(".artifact-more-button button[aria-label='More'], .artifact-more-button button, button[aria-label='More']");
-        if (!btn || !isVisible(btn)) continue;
-        const titleEl = card.querySelector("[data-testid='artifact-title']");
-        const cardTxt = (card.innerText || card.textContent || "").trim();
-        const isGen = /may take a while/i.test(cardTxt) || _has(cardTxt.toLowerCase(), NLM_CONFIG.words.generating) || !!card.querySelector(NLM_CONFIG.selectors.spinners);
-        const titleText = (titleEl ? (titleEl.innerText || titleEl.textContent || "") : "").trim();
-        const lines = cardTxt.split(/\n/).map((s) => s.trim()).filter((s) => s && !/^(more_vert|play_arrow|pause|download|edit|delete|check)$/i.test(s));
-        btns.push({ btn, card, cardTitle: (titleText || lines[0] || "Untitled").slice(0, 120), isGenerating: isGen });
-      }
-      if (btns.length > 0) return btns;
-    }
-
-    // Strategy 2: Fallback generic scan strictly inside Studio
-    for (const b of (studio || document).querySelectorAll("button, [role='button']")) {
-      if (!isVisible(b)) continue;
-      if (!hasDirectPanel) {
-        const rect = b.getBoundingClientRect();
-        if (rect.left < window.innerWidth * 0.5) continue;
-      }
-      if (b.closest("[aria-label*='source' i], [class*='source-panel' i], [class*='sources' i]")) continue;
-
-      const txt = (b.innerText || b.textContent || "").trim().toLowerCase();
-      const aria = (b.getAttribute("aria-label") || "").trim().toLowerCase();
-      if (aria.includes("settings") || aria.includes("collapse") || aria.includes("expand") || aria.includes("notebook configuration")) continue;
-      if (txt === "more_vert" || aria === "more" || aria.includes("more options") || aria.includes("more actions")) {
-        const card = b.closest(".artifact-item-button, .artifact-card, .studio-item, mat-card, [class*='artifact' i]") || b.parentElement?.parentElement || b;
-        const cardTxt = (card.innerText || card.textContent || "").trim();
-        const isGen = /may take a while/i.test(cardTxt) || _has(cardTxt.toLowerCase(), NLM_CONFIG.words.generating) || !!card.querySelector(NLM_CONFIG.selectors.spinners);
-        const lines = cardTxt.split(/\n/).map((s) => s.trim()).filter((s) => s && !/^(more_vert|play_arrow|pause|download|edit|delete|check)$/i.test(s));
-        btns.push({ btn: b, card, cardTitle: (lines[0] || "Untitled").slice(0, 120), isGenerating: isGen });
-      }
-    }
-    return btns;
-  }
-
-  async function openArtifactMenu(index) {
-    const list = getStudioArtifactMenus();
-    const item = list[index];
-    if (!item || !item.btn) return null;
-    try { item.btn.scrollIntoView({ block: "center" }); } catch (e) {}
-    await pause(150);
-    selectElementCleanly(item.btn);
-    for (let i = 0; i < 8; i++) {
-      await pause(250);
-      const items = Array.from(document.querySelectorAll("[role='menuitem'], .mat-mdc-menu-item, .cdk-overlay-pane button")).filter(isVisible);
-      if (items.length > 0) return { item, menuItems: items };
-    }
-    return null;
-  }
-
-  async function closeOverlayMenu() {
-    try {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
-      await pause(250);
-    } catch (e) {}
-  }
-
-  function scanArtifactsFlow() {
-    const list = getStudioArtifactMenus().map((a, idx) => ({
-      index: idx,
-      cardTitle: a.cardTitle,
-      isGenerating: a.isGenerating
-    }));
-    return { success: true, action: "scan_artifacts", confirmed: true, data: { artifacts: list }, message: `Found ${list.length} Studio artifacts.` };
-  }
-
-  async function readArtifactPromptFlow(index) {
-    if (isBusy) return { success: false, busy: true, error: "Busy: previous command is still running in NotebookLM tab." };
-    isBusy = true;
-    try {
-      await closeActiveDialogIfOpen();
-      const opened = await openArtifactMenu(index);
-      if (!opened) return { success: false, error: `Artifact #${index} menu could not be opened.` };
-      const viewBtn = opened.menuItems.find((el) => {
-        const t = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim().toLowerCase();
-        return /view\s*prompt|view\s*(custom\s*)?prompt|custom\s*prompt|show\s*prompt/i.test(t);
-      });
-      if (!viewBtn) {
-        await closeOverlayMenu();
-        return { success: true, action: "read_artifact_prompt", confirmed: true, data: { index, cardTitle: opened.item.cardTitle, hasPrompt: false, promptText: "" } };
-      }
-      selectElementCleanly(viewBtn);
-      let dlg = null;
-      for (let i = 0; i < 10; i++) {
-        await pause(300);
-        dlg = getActiveDialog();
-        if (dlg) break;
-      }
-      let promptText = "";
-      if (dlg) {
-        const raw = (dlg.innerText || dlg.textContent || "").trim();
-        promptText = raw
-          .replace(/^(?:view\s*)?(?:custom\s*)?prompt(?:\s+and\s+sources)?\s*\n+/i, "")
-          .replace(/\n+(?:sources?\s*(?:\(\d+\))?[\s\S]*)$/i, "")
-          .replace(/\n+(?:close|done|ok|cancel)\s*$/i, "")
-          .trim();
-        await closeActiveDialogIfOpen();
-      } else {
-        await closeOverlayMenu();
-      }
-      return {
-        success: true,
-        action: "read_artifact_prompt",
-        confirmed: true,
-        data: { index, cardTitle: opened.item.cardTitle, hasPrompt: !!promptText, promptText }
-      };
-    } finally {
-      isBusy = false;
-    }
-  }
-
-  async function renameAndDownloadArtifactFlow(index, newTitle, opts = {}) {
-    if (isBusy) return { success: false, busy: true, error: "Busy: previous command is still running in NotebookLM tab." };
-    isBusy = true;
-    const doRename = opts.doRename !== false && !!(newTitle && newTitle.trim());
-    const doDownload = opts.doDownload !== false;
-    let renamed = false;
-    let downloaded = false;
-    try {
-      await closeActiveDialogIfOpen();
-      if (doRename) {
-        const opened = await openArtifactMenu(index);
-        if (opened) {
-          const renBtn = opened.menuItems.find((el) => {
-            const t = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim().toLowerCase();
-            return /^rename\b|rename|नाम बदलें/i.test(t);
-          });
-          if (renBtn) {
-            selectElementCleanly(renBtn);
-            await pause(500);
-            const dlg = getActiveDialog();
-            const inp = findVisibleTextarea(dlg || opened.item.card) || findVisibleTextarea(document);
-            if (inp) {
-              fillTextareaRockSolid(inp, newTitle.trim());
-              await pause(250);
-              const saveBtn = dlg ? Array.from(dlg.querySelectorAll("button, [role='button']")).find((b) => isVisible(b) && /^(save|rename|ok|done|सहेजें)$/i.test((b.innerText || b.textContent || "").trim())) : null;
-              if (saveBtn && !isElementDisabled(saveBtn)) {
-                selectElementCleanly(saveBtn);
-              } else {
-                inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
-                inp.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
-              }
-              renamed = true;
-              await pause(900);
-              await closeActiveDialogIfOpen();
-            } else {
-              await closeOverlayMenu();
-            }
-          } else {
-            await closeOverlayMenu();
-          }
-        }
-      }
-
-      if (doDownload) {
-        const opened2 = await openArtifactMenu(index);
-        if (!opened2) {
-          return { success: false, error: `Artifact #${index} menu could not be opened for download.`, data: { renamed, downloaded } };
-        }
-        const dlBtn = opened2.menuItems.find((el) => {
-          const t = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim().toLowerCase();
-          return /^download\b|download|डाउनलोड/i.test(t);
-        });
-        if (!dlBtn) {
-          await closeOverlayMenu();
-          return { success: false, error: `Download option not found for artifact #${index}.`, data: { renamed, downloaded } };
-        }
-        selectElementCleanly(dlBtn);
-        downloaded = true;
-        await pause(1800);
-      }
-
-      return {
-        success: true,
-        action: "rename_download_artifact",
-        confirmed: true,
-        data: { index, renamed, downloaded },
-        message: `${renamed ? "Renamed + " : ""}${downloaded ? "Download started" : "Done"}`
-      };
-    } finally {
-      isBusy = false;
-    }
-  }
 
   // ======================= v5.0.0 : extra tools =======================
   // Diagnose: lists every visible button / link / input with its text + aria-label, so selectors can be fixed from facts.
@@ -1840,6 +1535,549 @@ const NLM_LANG_PACKS = {
     }
   }
 
+
+  // ================= v7.9.0: Rename + Download (Rocky, 20 Nov 2026) =================
+  // Flow verified live on the real NotebookLM page (20 Nov 2026, "Mastering Averages" notebook):
+  //  Short detail open -> "View prompt and N sources" button under the title -> dialog shows the
+  //  full Prompt -> match it against the dashboard's saved prompts (vt_user_shorts, sent inside
+  //  the command payload — content.js runs on notebook.google.com and CANNOT read the dashboard's
+  //  localStorage on github.io/localhost) -> the matched prompt's title goes into the editable
+  //  "Artifact title" field at the top of the detail panel (no pencil icon, no Rename menu item)
+  //  -> Download: header button first; Rocky: "kabhi kabhi 3 dot mai ata hai" — so if the header
+  //  Download is not there, open the 3-dot (...) menu and click Download inside it.
+  //  FRESH build: the v7.3-v7.5 Rename+Download code was fully removed in v7.6.0/7.6.1 and is not
+  //  in this repo's git history, so nothing here is restored code.
+  const _normPrompt = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").replace(/[\u201c\u201d"']/g, '"').trim();
+  function matchPromptToTitle(promptText, prompts) {
+    const list = Array.isArray(prompts) ? prompts : [];
+    const norm = _normPrompt(promptText);
+    if (!norm || !list.length) return null;
+    // 1) exact normalised match on the full prompt
+    for (const p of list) { if (p && p.prompt && _normPrompt(p.prompt) === norm) return p; }
+    // 2) one contains the other (dialog text also carries headings + Sources, dashboard may store extra preamble)
+    const scored = [];
+    for (const p of list) {
+      if (!p || !p.prompt) continue;
+      const pn = _normPrompt(p.prompt);
+      if (!pn) continue;
+      if (norm.includes(pn) || pn.includes(norm)) scored.push({ p, score: Math.min(pn.length, norm.length) });
+    }
+    if (scored.length) { scored.sort((a, b) => b.score - a.score); return scored[0].p; }
+    // 3) strong word overlap on the first 400 chars (covers re-wrapped / lightly edited prompts)
+    const head = norm.slice(0, 400);
+    const headWords = head.split(" ").filter((w) => w.length > 3);
+    let best = null, bestScore = 0;
+    for (const p of list) {
+      if (!p || !p.prompt) continue;
+      const bset = new Set(_normPrompt(p.prompt).slice(0, 400).split(" "));
+      let common = 0;
+      for (const w of headWords) if (bset.has(w)) common++;
+      const score = common / Math.max(1, headWords.length);
+      if (score > bestScore) { bestScore = score; best = p; }
+    }
+    return bestScore >= 0.8 ? best : null;
+  }
+  function findArtifactTitleField() {
+    const sels = ["input[aria-label*='Artifact title' i]", "input[aria-label*='artifact' i]", "textarea[aria-label*='Artifact title' i]"];
+    for (const sel of sels) { const el = document.querySelector(sel); if (el && isVisible(el)) return el; }
+    for (const el of document.querySelectorAll("[contenteditable='true']")) {
+      if (!isVisible(el)) continue;
+      const hay = ((el.getAttribute("aria-label") || "") + " " + (el.id || "")).toLowerCase();
+      if (hay.includes("title") || hay.includes("artifact")) return el;
+    }
+    // Fallback: any visible text field near the top whose label/placeholder mentions title
+    for (const el of document.querySelectorAll("input[type='text'], textarea")) {
+      if (!isVisible(el)) continue;
+      const hay = ((el.getAttribute("aria-label") || "") + " " + (el.getAttribute("placeholder") || "") + " " + (el.id || "")).toLowerCase();
+      if (hay.includes("title") || hay.includes("artifact")) return el;
+    }
+    return null;
+  }
+  function readArtifactTitle() {
+    const f = findArtifactTitleField();
+    if (!f) return "";
+    if (f.isContentEditable) return (f.innerText || f.textContent || "").trim();
+    return String(f.value || f.textContent || "").trim();
+  }
+  function setArtifactTitle(newTitle) {
+    const f = findArtifactTitleField();
+    if (!f) return { ok: false, error: "Artifact title field nahi mila — Short ka detail panel khula hai na, check karo." };
+    try { f.focus(); } catch (e) {}
+    try {
+      if (f.isContentEditable) {
+        try { window.getSelection()?.selectAllChildren(f); } catch (e) {}
+        if (!document.execCommand("insertText", false, newTitle)) { f.textContent = newTitle; }
+        f.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      } else {
+        const proto = f.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value");
+        try { f.setSelectionRange(0, (f.value || "").length); } catch (e) {}
+        if (setter && setter.set) setter.set.call(f, newTitle); else f.value = newTitle;
+        f.dispatchEvent(new Event("input", { bubbles: true }));
+        f.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    } catch (e) { return { ok: false, error: "Title likhte waqt error: " + (e.message || e) }; }
+    try { f.blur(); } catch (e) {}
+    return { ok: true };
+  }
+  // v7.10.0: dialog button se prompt padhna — readPromptFromDetail aur audio menu fallback dono use karte hain.
+  async function readPromptFromDialogButton(btn) {
+    selectElementCleanly(btn);
+    let dialog = null;
+    for (let i = 0; i < 10 && !dialog; i++) { await pause(500); dialog = getActiveDialog(); }
+    if (!dialog) return { ok: false, error: "View prompt dabane par prompt dialog nahi khula." };
+    const text = (dialog.innerText || dialog.textContent || "");
+    await closeActiveDialogIfOpen();
+    await pause(400);
+    return { ok: true, prompt: text };
+  }
+  async function readPromptFromDetail() {
+    const btn = findClickableByWords(document, NLM_CONFIG.words.viewPrompt, null, 300);
+    if (!btn) return { ok: false, error: "'View prompt' button nahi mila — Short ka detail panel khula hai na?" };
+    return readPromptFromDialogButton(btn);
+  }
+  function findHeaderDownloadButton() {
+    for (const el of document.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
+      if (!isVisible(el)) continue;
+      if (el.closest(".cdk-overlay-container, [role='menu'], mat-menu")) continue; // menu items are the fallback, not the header
+      const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+      const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+      if (t === "download" || aria === "download") return el;
+    }
+    return null;
+  }
+  // v7.10.0: moreBtnOverride = is artifact ki row ka 3-dot button (audio ke liye: Download sirf row ke
+  // menu mein hota hai, header mein nahi — 27 Nov 2026 live check). Override mile to wahi menu kholo.
+  async function clickDownloadButton(moreBtnOverride) {
+    const btn = findHeaderDownloadButton();
+    if (btn && !isElementDisabled(btn)) { selectElementCleanly(btn); return { ok: true, location: "header" }; }
+    // Fallback (Rocky: kabhi 3-dot mein aata hai): open the ... menu, then Download inside it.
+    let more = (moreBtnOverride && isVisible(moreBtnOverride)) ? moreBtnOverride : null;
+    if (!more) {
+      for (const el of document.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
+        if (!isVisible(el)) continue;
+        const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+        const t = (el.innerText || el.textContent || "").trim();
+        if (aria.includes("more option") || aria.includes("more action") || t === "\u22ef" || t === "\u2026") { more = el; break; }
+      }
+    }
+    if (!more) return { ok: false, error: "Download button header mein nahi mila, aur 3-dot menu bhi nahi mila." };
+    selectElementCleanly(more);
+    await pause(900);
+    const menu = document.querySelector(".cdk-overlay-container") || document;
+    const inMenu = findClickableByWords(menu, NLM_CONFIG.words.download, null, 120);
+    if (!inMenu || isElementDisabled(inMenu)) { await closeActiveDialogIfOpen(); return { ok: false, error: "3-dot menu khula, par usme Download nahi mila." }; }
+    selectElementCleanly(inMenu);
+    return { ok: true, location: "3-dot menu" };
+  }
+  // v7.10.0: core bina isBusy guard ke — manual renameDownloadFlow (guard ke saath) aur AI Auto pass
+  // (jo khud item-by-item chalata hai) dono isi ko use karte hain. opts.preReadPrompt mile to prompt
+  // dobara padhne ke liye dialog nahi kholte; opts.moreBtn mile to Download usi row ke menu se lete hain.
+  async function renameDownloadCore(prompts, opts) {
+    opts = opts || {};
+    {
+      const oldTitle = readArtifactTitle();
+      const pr = opts.preReadPrompt ? { ok: true, prompt: opts.preReadPrompt } : await readPromptFromDetail();
+      if (!pr.ok) return { success: false, error: pr.error, data: { oldTitle } };
+      const match = matchPromptToTitle(pr.prompt, prompts);
+      if (!match || !match.title) {
+        return { success: false, error: "Is Short ka prompt dashboard ke kisi prompt se match nahi hua — pehle dashboard mein prompts load karo (wahi Chrome jisme prompts save hain), phir dobara try karo.", data: { oldTitle, promptSnippet: _normPrompt(pr.prompt).slice(0, 200) } };
+      }
+      const newTitle = String(match.title).trim();
+      let renamed = (oldTitle === newTitle);
+      if (!renamed) {
+        const set = setArtifactTitle(newTitle);
+        if (!set.ok) return { success: false, error: set.error, data: { oldTitle, matchedTitle: newTitle, matchedNumber: match.number } };
+        await pause(900);
+        renamed = readArtifactTitle() === newTitle;
+        if (!renamed) return { success: false, error: "Title field mein naya naam likha, par wapas padhne par purana hi dikh raha hai — NotebookLM ne save nahi kiya.", data: { oldTitle, matchedTitle: newTitle, matchedNumber: match.number } };
+      }
+      let dl = null;
+      if (opts.download !== false) {
+        dl = await clickDownloadButton(opts.moreBtn || null);
+        if (!dl.ok) return { success: false, error: dl.error, data: { oldTitle, newTitle, matchedNumber: match.number, renamed } };
+      }
+      return { success: true, action: "rename_download", message: `Rename + Download ho gaya: "${oldTitle}" -> "${newTitle}"${dl ? ` (Download: ${dl.location}).` : " (sirf rename)."}`, data: { oldTitle, newTitle, matchedNumber: match.number, renamed, downloadLocation: dl ? dl.location : null } };
+    }
+  }
+  async function renameDownloadFlow(prompts, opts) {
+    opts = opts || {};
+    if (isBusy) return { success: false, error: "Extension abhi busy hai — pehla kaam khatam hone do." };
+    isBusy = true;
+    try { return await renameDownloadCore(prompts, opts); } finally { isBusy = false; }
+  }
+
+  // ================= v7.10.0: AI Auto — khud rename + download (Rocky, 27 Nov 2026) =================
+  // Flow: RUN -> prompts ek-ek karke bheje gaye (dashboard Auto-Batch) -> ~30 min wait (generation) ->
+  // Studio list upar se ek-ek karke: har artifact ka prompt padho, bheje gaye batch ke prompts se
+  // milao -> mila to us prompt ka TITLE likho + download karo; nahi mila to SKIP (chhodo).
+  // Limit wapas aane par dashboard agla batch bhejta hai aur ye pass us batch ke liye dobara chalta hai.
+  // LIVE FACTS (27 Nov 2026, Samvidhan notebook): Studio list ka order SCRAMBLED hai (na numeric,
+  // na chronological) — isliye position par kabhi bharosa nahi, sirf prompt-match par. Video detail:
+  // title textbox upar, uske neeche "View prompt and N sources", upar-right Share/Download/Open/More.
+  // Audio: docked player neeche (title textbox ke saath), AUTO-PLAY hota hai; View prompt + Download
+  // SIRF row ke 3-dot menu mein hain. List ki rows kholne/band karne ke selectors verify NAHI hue —
+  // har jagah fallback + log hai taaki pehla real run bataye kaun sa selector kaam kiya.
+  function isDefaultTitle(title) {
+    const t = String(title || "").trim();
+    if (!t) return true;
+    const low = t.toLowerCase();
+    if (low === "untitled" || low === "video overview" || low === "audio overview" ||
+        low === "new video" || low === "new audio" || low === "new video overview" || low === "new audio overview") return true;
+    // "Short-1", "Short 1", "Episode 12", "Point 3" — sirf number tak, uske baad kuch nahi.
+    // (Prompt titles "Short 1 - Average..." default NAHI hain — unke baad " - ..." aata hai.)
+    if (/^(short|episode|point|video|audio)[\s\-_#]*\d+\s*$/.test(low)) return true;
+    return false;
+  }
+  // Ek artifact ka faisla: match hua to process karo, title pehle se sahi hai to done-skip,
+  // match nahi hua to skip. (Default-title ya custom-title — dono process hote hain jab prompt match
+  // kare, kyunki live check (20 Nov) mein naye Shorts ka title random bhi hota hai; reason mein
+  // likha rehta hai ki title default tha ya custom, taaki report mein sab dikhe.)
+  function classifyAutoAiItem(artifact, sentPrompts) {
+    const match = matchPromptToTitle(artifact && artifact.promptText, sentPrompts);
+    if (!match) return { action: "skip", reason: "no-match", detail: "Iska prompt bheje gaye batch ke kisi prompt se match nahi hua — skip." };
+    const title = String((artifact && artifact.title) || "").trim();
+    const matchedTitle = String(match.title || "").trim();
+    if (matchedTitle && title === matchedTitle) {
+      return { action: "skip", reason: "done", matchedNumber: match.number, matchedTitle: matchedTitle, detail: "Title pehle se sahi hai — done." };
+    }
+    const def = isDefaultTitle(title);
+    return { action: "process", reason: def ? "default-title" : "custom-title",
+      matchedNumber: match.number, matchedTitle: matchedTitle, wasDefault: def,
+      detail: def ? "Default title hai — rename + download karo." : "Title pehle se kuch aur hai, par prompt match hua — rename + download karo (naye Shorts ka title aksar random hota hai)." };
+  }
+
+  // ---- Studio list: rows dhoondhna (har row ka anchor uska 3-dot "More options" button hai) ----
+  function extractRowTitle(rowText) {
+    const lines = String(rowText || "").split(/\n/).map((s) => s.trim()).filter(Boolean);
+    const ICON_WORDS = /^(check|checkmark|edit|more_vert|more_horiz|download|play_arrow|pause|schedule|new!?)$/i;
+    for (const line of lines) {
+      if (line.length < 2) continue;
+      if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(line)) continue;                 // duration "0:54" / "1:32:10"
+      if (/^\d+\s*(min|mins|minute|minutes|sec|secs|second|seconds)$/i.test(line)) continue;
+      if (ICON_WORDS.test(line)) continue;
+      if (/^(audio overview|video overview|short|episode)\s*$/i.test(line)) continue; // sirf type wali line
+      return line;
+    }
+    return lines[0] || "";
+  }
+  function listStudioArtifactsSync() {
+    const studio = findStudioContainer();
+    const scope = studio || document;
+    const items = [];
+    const seenRows = new Set();
+    let excludedCustomize = 0;
+    for (const btn of scope.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
+      if (!isVisible(btn)) continue;
+      const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
+      const t = (btn.innerText || btn.textContent || "").trim();
+      if (!(_has(aria, NLM_CONFIG.words.moreOptions) || t === "⋯" || t === "…")) continue;
+      let row = btn.closest("[role='listitem'], mat-list-item, .studio-item, .artifact-card, [class*='studio-item' i], li, [role='option']");
+      if (!row) {
+        let p = btn.parentElement;
+        for (let d = 0; d < 5 && p; d++, p = p.parentElement) {
+          const txt = (p.innerText || "").trim();
+          if (txt.length > 0 && txt.length < 400) { row = p; break; }
+        }
+      }
+      if (!row || seenRows.has(row)) continue;
+      seenRows.add(row);
+      const text = (row.innerText || row.textContent || "").trim();
+      if (!text) continue;
+      const low = text.toLowerCase();
+      if (low.includes("customize") || low.includes("customise")) { excludedCustomize++; continue; } // create-tile, artifact nahi
+      const title = extractRowTitle(text);
+      if (!title) continue;
+      const type = /audio/.test(low) ? "audio" : (/video|short/.test(low) ? "video" : "unknown");
+      items.push({ rowEl: row, title: title, type: type, moreBtn: btn });
+    }
+    return { items: items, excludedCustomize: excludedCustomize };
+  }
+  // List render hone ke liye pehle neeche-upar scroll karo (virtualized list ke rows tabhi DOM mein aate hain).
+  async function listStudioArtifacts() {
+    const studio = findStudioContainer();
+    try {
+      if (studio && studio !== document.body && typeof studio.scrollTop === "number") studio.scrollTop = studio.scrollHeight;
+      else window.scrollTo(0, document.body ? document.body.scrollHeight : 0);
+    } catch (e) {}
+    await pause(700);
+    try {
+      if (studio && studio !== document.body && typeof studio.scrollTop === "number") studio.scrollTop = 0;
+      else window.scrollTo(0, 0);
+    } catch (e) {}
+    await pause(400);
+    return listStudioArtifactsSync();
+  }
+
+  async function openStudioArtifact(item) {
+    ensureStudioTabSelected();
+    await pause(300);
+    let row = item.rowEl;
+    if (!row || !row.isConnected) {
+      const fresh = listStudioArtifactsSync().items.find((it) => it.title === item.title && it.type === item.type);
+      if (!fresh) return { ok: false, error: "Studio list dobara render hui aur ye item wapas nahi mila (title: " + item.title + ")." };
+      row = fresh.rowEl; item.rowEl = row; item.moreBtn = fresh.moreBtn;
+    }
+    try { row.scrollIntoView({ block: "nearest" }); } catch (e) {}
+    await pause(300);
+    // Title wale hisse par click karo — poori row par click karne se kabhi kabhi menu khul jata hai.
+    let target = row, how = "row";
+    try {
+      const kids = row.querySelectorAll("*");
+      for (const k of kids) {
+        const t = (k.innerText || k.textContent || "").trim();
+        if (t && item.title && (t === item.title || t.indexOf(item.title) === 0) && k.children.length <= 2) { target = k; how = "title-el"; break; }
+      }
+    } catch (e) {}
+    selectElementCleanly(target);
+    for (let i = 0; i < 8; i++) { await pause(500); if (findArtifactTitleField()) return { ok: true, how: how }; }
+    selectElementCleanly(row);
+    for (let i = 0; i < 6; i++) { await pause(500); if (findArtifactTitleField()) return { ok: true, how: "row-retry" }; }
+    return { ok: false, error: "Studio list se item khola, par detail panel (title field) nahi khula — row ka click ya selector galat ho sakta hai." };
+  }
+  async function closeArtifactDetail() {
+    if (!findArtifactTitleField()) return { ok: true, how: "already-closed" };
+    for (const el of document.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
+      if (!isVisible(el)) continue;
+      const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+      const t = (el.innerText || el.textContent || "").trim();
+      if (aria === "back" || aria.indexOf("go back") === 0 || aria === "close" || t === "✕" || t === "×" || t === "←") {
+        selectElementCleanly(el);
+        await pause(700);
+        if (!findArtifactTitleField()) return { ok: true, how: aria || t };
+      }
+    }
+    try { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); } catch (e) {}
+    await pause(700);
+    if (!findArtifactTitleField()) return { ok: true, how: "escape" };
+    return { ok: false, how: "none", error: "Detail band nahi hua — agla item kholne par problem ho sakti hai." };
+  }
+  // Audio khulte hi AUTO-PLAY hota hai (live check 27 Nov 2026) — turant pause karo, nahi to poora
+  // pass chalte waqt audio bajta rahega. Pause button na mile to fail nahi karte, bas log karte hain.
+  async function pauseAudioPlayback() {
+    for (const el of document.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
+      if (!isVisible(el)) continue;
+      const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+      const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+      if (aria === "pause" || t === "pause") {
+        selectElementCleanly(el);
+        await pause(400);
+        return { ok: true };
+      }
+    }
+    return { ok: false, error: "Pause button nahi mila — audio bajta rahega, koi baat nahi." };
+  }
+  // Audio ka prompt: seedha "View prompt" dikhe to wahi; nahi to row ke 3-dot menu mein hota hai
+  // (live check 27 Nov 2026: Share, Rename, Download, View prompt and sources, Open in new tab, Delete).
+  async function readPromptFromDetailForAudio(item) {
+    const direct = await readPromptFromDetail();
+    if (direct.ok) return direct;
+    if (!item || !item.moreBtn || !isVisible(item.moreBtn)) return direct;
+    try { item.moreBtn.scrollIntoView({ block: "nearest" }); } catch (e) {}
+    await pause(300);
+    selectElementCleanly(item.moreBtn);
+    await pause(900);
+    const menu = document.querySelector(".cdk-overlay-container") || document;
+    const inMenu = findClickableByWords(menu, NLM_CONFIG.words.viewPrompt, null, 120);
+    if (!inMenu || isElementDisabled(inMenu)) {
+      try { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); } catch (e) {}
+      await pause(400);
+      return direct; // menu mein View prompt nahi mila — original error wapas
+    }
+    return readPromptFromDialogButton(inMenu);
+  }
+
+  // ---- Generation khatam hone ka wait: har 2 min mein check, ~30 min expected, max 2 ghante ----
+  // Jaldi khatam ho jaye to jaldi rename pass shuru (2 baar lagatar idle = done). Agar 30 min tak
+  // kabhi "generating" dikha hi nahi aur phir idle hai, to bhi done mano (kuch generate hi nahi hua).
+  async function waitForGenerationDone(opts) {
+    opts = opts || {};
+    const pollMs = opts.pollMs || 120000;
+    const maxMs = opts.maxMs || 2 * 60 * 60 * 1000;
+    const t0 = Date.now();
+    let idleStreak = 0, sawGenerating = false, polls = 0;
+    while (Date.now() - t0 < maxMs) {
+      if (autoAiStopRequested) return { ready: false, stopped: true, polls: polls, waitedMs: Date.now() - t0 };
+      const q = checkQuotaExhaustion(null);
+      if (q.exhausted) return { ready: false, quota: true, quotaError: q.error, polls: polls, waitedMs: Date.now() - t0 };
+      const gen = isGeneratingActive();
+      polls++;
+      if (gen) { sawGenerating = true; idleStreak = 0; }
+      else {
+        idleStreak++;
+        if ((sawGenerating || Date.now() - t0 >= 30 * 60 * 1000) && idleStreak >= 2) {
+          return { ready: true, polls: polls, waitedMs: Date.now() - t0, sawGenerating: sawGenerating };
+        }
+      }
+      await pause(pollMs);
+    }
+    return { ready: false, timedOut: true, polls: polls, waitedMs: Date.now() - t0, sawGenerating: sawGenerating };
+  }
+
+  // ---- AI Auto progress: chrome.storage.local mein (reload se bhi bachta hai) + memory fallback ----
+  const AUTO_AI_KEY = "nlm_auto_ai";
+  function autoAiStorageApi() {
+    try {
+      if (typeof browser !== "undefined" && browser.storage && browser.storage.local) return browser.storage.local;
+      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) return chrome.storage.local;
+    } catch (e) {}
+    return null;
+  }
+  async function saveAutoAiState(state) {
+    try { window.__nlmAutoAiState = state; } catch (e) {}
+    try {
+      const api = autoAiStorageApi();
+      if (!api) return false;
+      const obj = {}; obj[AUTO_AI_KEY] = state;
+      const r = api.set(obj, () => {});
+      if (r && r.then) await r;
+      return true;
+    } catch (e) { return false; }
+  }
+  async function loadAutoAiState() {
+    try {
+      const api = autoAiStorageApi();
+      if (api) {
+        const res = await new Promise((resolve) => {
+          try {
+            const r = api.get(AUTO_AI_KEY, (out) => resolve(out || {}));
+            if (r && r.then) r.then((out) => resolve(out || {})).catch(() => resolve({}));
+          } catch (e) { resolve({}); }
+        });
+        if (res && res[AUTO_AI_KEY]) return res[AUTO_AI_KEY];
+      }
+    } catch (e) {}
+    try { return window.__nlmAutoAiState || null; } catch (e) { return null; }
+  }
+
+  // ---- AI Auto orchestrator: EK batch ke liye (wait + rename/download pass) ----
+  async function autoAiFlow(prompts, opts) {
+    opts = opts || {};
+    if (autoAiRunning) return { success: false, error: "AI Auto pehle se chal raha hai — pehle usko rok do ya khatam hone do." };
+    autoAiRunning = true;
+    autoAiStopRequested = false;
+    const sent = Array.isArray(prompts) ? prompts.filter((p) => p && p.prompt) : [];
+    const batchTypes = new Set();
+    for (const p of sent) {
+      const ts = Array.isArray(p.types) && p.types.length ? p.types : ["video", "audio"];
+      for (const t of ts) batchTypes.add(String(t).toLowerCase());
+    }
+    const state = {
+      batchStart: (opts.batchStart !== undefined && opts.batchStart !== null) ? opts.batchStart : null,
+      batchEnd: (opts.batchEnd !== undefined && opts.batchEnd !== null) ? opts.batchEnd : null,
+      sentNumbers: Array.isArray(opts.sentNumbers) && opts.sentNumbers.length ? opts.sentNumbers : sent.map((p) => p.number),
+      sentAt: Date.now(), status: "waiting",
+      counts: { sent: sent.length, checked: 0, renamed: 0, downloaded: 0, done: 0, skipped: 0, failed: 0 },
+      items: [], quotaError: "", nextResumeAt: null, updatedAt: Date.now()
+    };
+    const save = async (patch) => { Object.assign(state, patch, { updatedAt: Date.now() }); await saveAutoAiState(state); return state; };
+    const record = (entry) => { state.items.push(entry); };
+    try {
+      if (!sent.length) {
+        await save({ status: "no-send" });
+        return { success: false, error: "Is batch mein koi prompt bheja nahi gaya — pehle Auto-Batch se prompts bhejo.", data: state };
+      }
+      await save({ status: "waiting" });
+      const before = await listStudioArtifacts();
+      state.beforeCount = before.items.length;
+      state.beforeTitles = before.items.slice(0, 50).map((it) => it.title);
+      await save({});
+      const wait = await waitForGenerationDone({ pollMs: 120000, maxMs: 2 * 60 * 60 * 1000 });
+      if (wait.stopped) {
+        await save({ status: "stopped" });
+        return { success: false, error: "AI Auto user ne roka.", data: state };
+      }
+      if (wait.quota) {
+        await save({ status: "quota", quotaError: wait.quotaError || "" });
+        return { success: false, quotaExhausted: true, error: wait.quotaError || "AI usage limit reached.", data: state };
+      }
+      if (!wait.ready) {
+        await save({ status: "timeout" });
+        return { success: false, error: "2 ghante wait karne par bhi generation khatam nahi hui (" + wait.polls + " baar check kiya) — baad mein dobara chalao, rename pass usi batch par dobara chalega.", data: state };
+      }
+      await save({ status: "renaming" });
+      const listed = await listStudioArtifacts();
+      const seenTitles = new Set();   // khole gaye items (original title se — rename ke baad title badal jata hai)
+      const doneNumbers = new Set();  // jin prompt numbers ka faisla ho gaya
+      for (const item of listed.items) {
+        if (autoAiStopRequested) {
+          await save({ status: "stopped" });
+          return { success: false, error: "AI Auto user ne roka.", data: state };
+        }
+        const q = checkQuotaExhaustion(null);
+        if (q.exhausted) {
+          await save({ status: "quota", quotaError: q.error || "" });
+          return { success: false, quotaExhausted: true, error: q.error || "AI usage limit reached.", data: state };
+        }
+        const key = item.type + "|" + item.title;
+        if (seenTitles.has(key)) continue;
+        // Title pehle se kisi bheje gaye prompt ke title jaisa hai — kholo mat, done mano.
+        const titleMatch = sent.find((p) => p.title && String(p.title).trim() && String(p.title).trim() === item.title);
+        if (titleMatch && !doneNumbers.has(titleMatch.number)) {
+          doneNumbers.add(titleMatch.number);
+          state.counts.done++;
+          record({ title: item.title, number: titleMatch.number, result: "done", reason: "title pehle se sahi hai" });
+          await save({});
+          continue;
+        }
+        if (titleMatch) continue; // is prompt ka faisla ho chuka
+        if (item.type !== "unknown" && !batchTypes.has(item.type)) {
+          state.counts.skipped++;
+          record({ title: item.title, type: item.type, result: "skipped", reason: "is batch mein is type ka prompt bheja hi nahi gaya" });
+          await save({});
+          continue;
+        }
+        seenTitles.add(key);
+        const opened = await openStudioArtifact(item);
+        if (!opened.ok) {
+          state.counts.failed++;
+          record({ title: item.title, type: item.type, result: "failed", reason: opened.error });
+          await save({});
+          continue;
+        }
+        try {
+          if (item.type === "audio") {
+            const paused = await pauseAudioPlayback();
+            if (!paused.ok) { /* log only — audio bajta rahega, kaam nahi rukega */ }
+          }
+          const pr = await readPromptFromDetailForAudio(item);
+          if (!pr.ok) {
+            state.counts.failed++;
+            record({ title: item.title, type: item.type, result: "failed", reason: pr.error });
+            continue;
+          }
+          state.counts.checked++;
+          const cls = classifyAutoAiItem({ title: item.title, promptText: pr.prompt, type: item.type }, sent);
+          if (cls.action === "skip") {
+            if (cls.matchedNumber !== undefined && cls.matchedNumber !== null) doneNumbers.add(cls.matchedNumber);
+            if (cls.reason === "done") state.counts.done++; else state.counts.skipped++;
+            record({ title: item.title, number: cls.matchedNumber !== undefined ? cls.matchedNumber : null, result: cls.reason === "done" ? "done" : "skipped", reason: cls.detail });
+            continue;
+          }
+          if (cls.matchedNumber !== undefined && cls.matchedNumber !== null) doneNumbers.add(cls.matchedNumber);
+          const core = await renameDownloadCore(sent, { download: opts.download !== false, preReadPrompt: pr.prompt, moreBtn: item.moreBtn || null });
+          if (core.success) {
+            state.counts.renamed++;
+            if (core.data && core.data.downloadLocation) state.counts.downloaded++;
+            record({ title: item.title, number: core.data ? core.data.matchedNumber : cls.matchedNumber, result: "renamed", newTitle: core.data ? core.data.newTitle : cls.matchedTitle, download: core.data ? core.data.downloadLocation : null, wasDefault: !!cls.wasDefault });
+          } else {
+            state.counts.failed++;
+            record({ title: item.title, number: cls.matchedNumber !== undefined ? cls.matchedNumber : null, result: "failed", reason: core.error });
+          }
+        } finally {
+          await closeArtifactDetail();
+          await pause(800);
+        }
+        await save({});
+      }
+      await save({ status: "done" });
+      const c = state.counts;
+      return { success: true, action: "auto_ai",
+        message: "AI Auto poora hua: " + c.checked + " check kiye, " + c.renamed + " rename + " + c.downloaded + " download, " + c.done + " pehle se done, " + c.skipped + " skip, " + c.failed + " fail.",
+        data: state };
+    } finally { autoAiRunning = false; }
+  }
+
   // v5.1.0: Google pages enforce Trusted Types; a plain innerHTML string throws "requires 'TrustedHTML' assignment" and the box never appears.
   function nlmTrusted(html) {
     try {
@@ -1947,6 +2185,7 @@ const NLM_LANG_PACKS = {
             success: true,
             isGenerating: isGeneratingActive(),
             isBusy: isBusy,
+            autoAiRunning: autoAiRunning,
             quotaExhausted: quota.exhausted,
             error: quota.error || ""
           };
@@ -1963,12 +2202,6 @@ const NLM_LANG_PACKS = {
             let res;
             if (msg.mode === "scan_ui") {
               res = scanUiFlow();
-            } else if (msg.mode === "scan_artifacts") {
-              res = scanArtifactsFlow();
-            } else if (msg.mode === "read_artifact_prompt") {
-              res = await readArtifactPromptFlow(Number(msg.index) || 0);
-            } else if (msg.mode === "rename_download_artifact") {
-              res = await renameAndDownloadArtifactFlow(Number(msg.index) || 0, msg.newTitle || "", { doRename: msg.doRename !== false, doDownload: msg.doDownload !== false });
             } else if (msg.mode === "chat") {
               res = await chatFlow(msg.topic || "", flowOpts);
             } else if (msg.mode === "add_source") {
@@ -1979,6 +2212,20 @@ const NLM_LANG_PACKS = {
               res = await researchFlow({ query: msg.topic || msg.value, where: msg.where, depth: msg.depth, importResults: msg.importResults !== false });
             } else if (msg.mode === "set_language") {
               res = await setLanguageFlow(msg.names || [msg.value || msg.topic || ""]);
+            } else if (msg.mode === "rename_download") {
+              res = await renameDownloadFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { download: true });
+            } else if (msg.mode === "rename_only") {
+              res = await renameDownloadFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { download: false });
+            } else if (msg.mode === "auto_ai") {
+              // v7.10.0: poora AI Auto pass (wait + rename/download). Ghanton chal sakta hai — dashboard
+              // status poll karta hai, aur reload hone par bhi progress chrome.storage.local mein safe hai.
+              res = await autoAiFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { batchStart: msg.batchStart, batchEnd: msg.batchEnd, sentNumbers: msg.sentNumbers, download: msg.download !== false });
+            } else if (msg.mode === "auto_ai_status") {
+              const st = await loadAutoAiState();
+              res = { success: true, action: "auto_ai_status", data: Object.assign({}, st || {}, { isGenerating: isGeneratingActive(), isBusy: isBusy, autoAiRunning: autoAiRunning }) };
+            } else if (msg.mode === "auto_ai_stop") {
+              autoAiStopRequested = true;
+              res = { success: true, action: "auto_ai_stop", message: "AI Auto rokne ka signal bhej diya — chal raha pass agle checkpoint par ruk jayega." };
             } else if (msg.mode === "audio") {
               res = await generateAudioFlow(msg.topic || "", flowOpts);
             } else if (!msg.mode || msg.mode === "video") {
@@ -2018,7 +2265,8 @@ const NLM_LANG_PACKS = {
   if (typeof globalThis !== "undefined" && globalThis.__NLM_TEST_HOOK__) {
     globalThis.__NLM_TEST__ = {
       generateVideoFlow, generateAudioFlow, generateStudioFlow, applyChoices, selectedChoices, getActiveDialog, findChoice, configureChatFlow, researchFlow, scanUiFlow, chatFlow, addSourceFlow, setLanguageFlow, checkQuotaExhaustion, getFormatRadioButtons,
-      isRadioSelected, getActiveVideoDialog, clickGenerateButtonInDialog, isGeneratingActive
+      isRadioSelected, getActiveVideoDialog, clickGenerateButtonInDialog, isGeneratingActive, renameDownloadFlow, matchPromptToTitle,
+      isDefaultTitle, classifyAutoAiItem, listStudioArtifactsSync, waitForGenerationDone, autoAiFlow, loadAutoAiState, renameDownloadCore
     };
   }
 

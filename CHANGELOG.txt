@@ -1,3 +1,39 @@
+v7.10.0 (27 Nov 2026) - AI Auto: khud rename + download (Rocky ka spec, 27 Nov):
+  1. Naya flow (Rocky): RUN -> prompts ek-ek karke bhejo -> ~15 video ke baad NotebookLM limit khatam
+     (exact number NotebookLM par depend karta hai, code mein hardcode nahi hai) -> ~30 min wait ->
+     Studio ke items ka prompt padh ke dashboard prompts se milao -> mila to sahi title + download,
+     nahi mila to SKIP -> limit wapas aane par agla batch wahi se shuru, batch by batch.
+  2. content.js: listStudioArtifacts() (Studio list rows — anchor har row ka 3-dot menu; order
+     SCRAMBLED hota hai isliye sirf prompt-match par bharosa), openStudioArtifact() /
+     closeArtifactDetail() (detail kholo/band karo), pauseAudioPlayback() (audio khulte hi auto-play
+     hota hai — turant pause), readPromptFromDetailForAudio() (audio ka View prompt sirf row ke
+     3-dot menu mein hota hai — 27 Nov live check), waitForGenerationDone() (har 2 min check, jaldi
+     khatam ho to jaldi pass, max 2 ghante), autoAiFlow() (ek batch ka orchestrator: wait + rename/
+     download pass, progress chrome.storage.local mein — reload se bhi safe), NLM_COMMAND modes
+     auto_ai / auto_ai_status / auto_ai_stop. renameDownloadFlow ka core alag kar diya
+     (renameDownloadCore) taaki manual aur auto dono wahi logic use karein.
+  3. app.js + index.html: naya panel "AI Auto (khud rename + download)" — Start/Stop buttons aur live
+     status line (batch range, bheje/check/rename/download/done/skip/fail counts, agla batch kab).
+     Batch record (sent range, counts, per-item results) nlmState.aiAuto mein — reload/restart se
+     bachta hai. Limit par existing auto-resume agla batch chalata hai, aur resume hone par AI flow
+     hi dobara chalta hai (Auto-Batch nahi). Dashboard 30s mein status poll karta hai; reload hone
+     par status dobara sync hota hai.
+  4. NOT VERIFIED (pehle real run mein dekhna hai): Studio list ki row kholne/band karne ke selectors
+     (live page par verify nahi hue — fallback + log hai); audio ka View prompt menu fallback; exact
+     wait/poll timing (30 min / 2 min / 2h max — Rocky ke bataye anusaar, NotebookLM kabhi zyada bhi
+     le sakta hai to poll karta rahega). Pehla test: maujooda notebook mein SIRF ek artifact par,
+     aur test ke baad title wapas karke revert karo (Rocky ka rule, 27 Nov).
+  5. Test notebook ("Vidya Topper Test") abhi bhi BLOCKED hai — Rocky ne kaha NO new notebook, NO
+     sharing; test maujooda notebook mein hi hoga.
+
+v7.9.0 (20 Nov 2026) - Rename + Download wapas (FRESH build, Rocky ke step-by-step spec par):
+  1. Flow (20 Nov ko real NotebookLM page par verify kiya): Short kholo -> "View prompt and N sources" dabao -> prompt padho -> dashboard ke saved prompts (vt_user_shorts) se match karo -> matched title ko editable "Artifact title" field mein likho (na pencil icon hai, na Rename menu) -> Download dabao.
+  2. Download location VARIES (Rocky): pehle header wala Download dhoondhta hai, nahi mila to 3-dot (...) menu khol ke andar Download dabata hai. Dono jagah check karta hai, to kabhi miss nahi hoga.
+  3. Matching: content.js NotebookLM origin par chalta hai aur dashboard ka localStorage (github.io/localhost) padh nahi sakta, isliye dashboard apne prompts command ke saath bhejta hai; match exact -> contains -> 80%+ word overlap, is order mein hota hai.
+  4. Dashboard mein naya panel "Rename + Download (khula hua Short)": "Rename + Download karo" aur "Sirf rename karo" buttons. Sirf khula hua Short karta hai (ek-ek karke) — bulk (70 Shorts) abhi nahi, wo agle version mein Studio list se hoga.
+  5. FRESH code hai: v7.3-v7.5 wala Rename+Download v7.6.0/7.6.1 mein poora hata diya gaya tha aur git history mein nahi hai, isliye restore nahi, dobara likha gaya hai. Real-page test abhi baaki hai — Rocky ke Chrome mein (jisme prompts + extension hain) ek Short par test karna hai.
+  6. Pehle se yaad rakhne wali baat: dashboard "Extension Inactive" + 0 prompts dikhata hai jab extension us browser mein loaded nahi hai ya prompts us Chrome mein nahi hain — ye feature usi Chrome mein chalega jisme prompts save hain.
+
 v7.8.1 (18 Nov 2026) - 74+ Shorts Massive Batch & Thinking Budget Fix:
   1. Gemini 2.5 Flash Thinking Budget: 'thinkingBudget: 0' set kiya taaki AI apne output tokens internal thinking mein waste na kare aur 74+ shorts jaise bade batch MAX_TOKENS par na tutein.
   2. Preamble vs Body Slicing Fix: Bullets (- / *) aur body paragraphs ko ab galti se preamble nahi mana jayega; Short 1 ke points Short 1 mein hi rahenge aur agle short mein shift nahi honge.

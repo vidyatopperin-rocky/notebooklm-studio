@@ -158,10 +158,6 @@ const OUTPUT_PRESETS = {
 };
 // a card without an outputs list is a v4.5 card: it sends the video only
 function outputsOf(item) {
-  if (item && Array.isArray(item.outputs) && item.outputs.length > 0) {
-    const valid = item.outputs.filter((o) => OUTPUT_LABEL[o]);
-    if (valid.length > 0) return valid;
-  }
   const t = typeOf(item);
   return [t === "reports" ? reportIdOf(item) : t].filter((o) => OUTPUT_LABEL[o]);
 }
@@ -243,9 +239,9 @@ let nlmState = {
   limitHitAt: null,
   resetText: "",
   resumeAtMs: null,
-  downloadWaitAtMs: null,
   lastMessage: "",
-  settings: { allowLater: false, focusTab: true, autoResume: false, waitFinish: false, autoDownload30m: true, renameInNlm: true },
+  aiAuto: null,   // v7.10.0: AI Auto batch record {enabled, batchStart, batchEnd, sentNumbers, sentAt, status, counts, items, nextResumeAt, quotaError}
+  settings: { allowLater: false, focusTab: true, autoResume: false, waitFinish: false },
   log: [],
   updatedAt: 0
 };
@@ -266,6 +262,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCardManagement();
   setupAutoSplit();
   setupAutoBatchControls();
+  setupRenameDownloadControls();
+  setupAiAutoControls();
   setupCustomGenerator();
   initBridgeHeartbeat();
   initResumeState();
@@ -856,17 +854,6 @@ function sliceEpisodesFromMarkers(rawText, items) {
         hIdx = rawText.indexOf(hText.slice(0, 25), searchFrom);
       }
       if (hIdx === -1) {
-        // Case-insensitive & flexible-whitespace fallback from searchFrom
-        const norm = hText.replace(/^[#*\s]+/, "").trim();
-        if (norm) {
-          const esc = norm.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-          const re = new RegExp(esc, "i");
-          const tail = rawText.slice(searchFrom);
-          const m = re.exec(tail);
-          if (m) hIdx = searchFrom + m.index;
-        }
-      }
-      if (hIdx === -1) {
         hIdx = rawText.indexOf(hText);
       }
     }
@@ -935,7 +922,7 @@ Return strictly a valid JSON array of objects:
       temperature: 0.1,
       responseMimeType: "application/json",
       thinkingConfig: { thinkingBudget: 0 },
-      maxOutputTokens: 16384
+      maxOutputTokens: 8192
     }
   };
 
@@ -963,82 +950,6 @@ Return strictly a valid JSON array of objects:
   return sliceEpisodesFromMarkers(rawText, items);
 }
 
-async function callOmniRouteChat(promptText, jsonMode = true) {
-  const baseUrl = (localStorage.getItem("nlm_omni_url") || "http://127.0.0.1:20128/v1").trim().replace(/\/+$/, "");
-  const model = (localStorage.getItem("nlm_omni_model") || "auto").trim() || "auto";
-  const apiKey = (localStorage.getItem("nlm_omni_key") || "").trim();
-  const headers = { "Content-Type": "application/json" };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-
-  const body = {
-    model,
-    messages: [{ role: "user", content: promptText }],
-    temperature: 0.1
-  };
-  if (jsonMode) body.response_format = { type: "json_object" };
-
-  let res = await sendToBridge({
-    type: "NLM_AI_FETCH",
-    url: `${baseUrl}/chat/completions`,
-    method: "POST",
-    headers,
-    body
-  }, 90000);
-
-  // Some local models reject response_format: json_object -> retry once without it
-  if ((!res || !res.success) && jsonMode && res?.status === 400) {
-    delete body.response_format;
-    res = await sendToBridge({
-      type: "NLM_AI_FETCH",
-      url: `${baseUrl}/chat/completions`,
-      method: "POST",
-      headers,
-      body
-    }, 90000);
-  }
-
-  if (!res || !res.success) {
-    throw new Error(`OmniRoute Error: ${res?.error || "Connection failed (kya OmniRoute chal raha hai?)"}`);
-  }
-  const content = res.data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("OmniRoute se koi response text nahi mila.");
-  return content;
-}
-
-function extractJsonArrayFromText(raw) {
-  const cleaned = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && Array.isArray(parsed.items)) return parsed.items;
-    if (parsed && Array.isArray(parsed.prompts)) return parsed.prompts;
-  } catch (e) {}
-  const m = cleaned.match(/\[[\s\S]*\]/);
-  if (m) return JSON.parse(m[0]);
-  throw new Error("AI response valid JSON array nahi tha.");
-}
-
-async function parseWithOmniRoute(rawText) {
-  const prompt = `Identify every single short/episode/prompt block in the text.
-Return strictly a valid JSON array of objects (no markdown, no explanation):
-[
-  {
-    "number": 1,
-    "title": "Short X: ... or Episode X: ...",
-    "unique_heading": "the exact text line where this short/episode begins in the text"
-  }
-]
-
-Here is the raw text to analyze:
-${rawText}`;
-  const raw = await callOmniRouteChat(prompt, false);
-  const items = extractJsonArrayFromText(raw);
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new Error("OmniRoute response valid array nahi tha.");
-  }
-  return sliceEpisodesFromMarkers(rawText, items);
-}
-
 async function performAISplit() {
   const raw = document.getElementById("raw-shorts-paste-area")?.value || "";
   if (!pasteType) {
@@ -1050,21 +961,18 @@ async function performAISplit() {
     return;
   }
 
-  const provider = localStorage.getItem("nlm_ai_provider") || "omniroute";
   let apiKey = (localStorage.getItem("nlm_gemini_api_key") || "").trim();
-  if (provider === "gemini") {
-    const inputKey = (document.getElementById("gemini-api-key-input")?.value || "").trim();
-    if (!apiKey && inputKey) {
-      apiKey = inputKey;
-      try { localStorage.setItem("nlm_gemini_api_key", apiKey); } catch (e) {}
-    }
-    if (!apiKey) {
-      const keyBar = document.getElementById("gemini-key-bar");
-      if (keyBar) keyBar.scrollIntoView({ behavior: "smooth", block: "center" });
-      document.getElementById("gemini-api-key-input")?.focus();
-      alert("⚠️ Kripya pehle apna Gemini API Key enter kijiye aur 'Save Key' dabaiye!");
-      return;
-    }
+  const inputKey = (document.getElementById("gemini-api-key-input")?.value || "").trim();
+  if (!apiKey && inputKey) {
+    apiKey = inputKey;
+    try { localStorage.setItem("nlm_gemini_api_key", apiKey); } catch (e) {}
+  }
+  if (!apiKey) {
+    const keyBar = document.getElementById("gemini-key-bar");
+    if (keyBar) keyBar.scrollIntoView({ behavior: "smooth", block: "center" });
+    document.getElementById("gemini-api-key-input")?.focus();
+    alert("⚠️ Kripya pehle apna Gemini API Key enter kijiye aur 'Save Key' dabaiye!");
+    return;
   }
 
   const btnAi = document.getElementById("btn-ai-split");
@@ -1073,10 +981,10 @@ async function performAISplit() {
     btnAi.disabled = true;
     btnAi.innerHTML = '<span>⏳</span><span>AI alag kar raha hai...</span>';
   }
-  updateGlobalStatus(provider === "omniroute" ? "🚀 OmniRoute (Local AI) prompts ko analyze kar raha hai..." : "🤖 Gemini 2.5 Flash prompts ko bina kisi katauti ke analyze kar raha hai...", "info");
+  updateGlobalStatus("🤖 Gemini 2.5 Flash prompts ko bina kisi katauti ke analyze kar raha hai...", "info");
 
   try {
-    const parsed = provider === "omniroute" ? await parseWithOmniRoute(raw) : await parseWithGemini(raw, apiKey);
+    const parsed = await parseWithGemini(raw, apiKey);
     if (!parsed || parsed.length === 0) {
       throw new Error("AI koi valid prompts identify nahi kar paya.");
     }
@@ -1145,62 +1053,6 @@ function setupAutoSplit() {
   renderPasteChooser();
   const op = document.getElementById("btn-open-paste"); if (op) op.addEventListener("click", () => { const pd = document.getElementById("paste-details"); if (pd) { pd.open = true; pd.scrollIntoView({ behavior: "smooth", block: "start" }); } });
   try { const pd = document.getElementById("paste-details"); if (pd && allShorts.length === 0) pd.open = true; } catch (e) {}
-
-  // AI Provider & OmniRoute / Gemini controls
-  const providerSel = document.getElementById("ai-provider-select");
-  const omniRow = document.getElementById("omniroute-config-row");
-  const geminiRow = document.getElementById("gemini-config-row");
-  const omniUrlInp = document.getElementById("omni-url-input");
-  const omniModelInp = document.getElementById("omni-model-input");
-  const omniKeyInp = document.getElementById("omni-key-input");
-  const aiProvStatus = document.getElementById("ai-provider-status");
-
-  const syncProviderUI = () => {
-    const p = providerSel ? providerSel.value : (localStorage.getItem("nlm_ai_provider") || "omniroute");
-    if (omniRow) omniRow.style.display = p === "omniroute" ? "flex" : "none";
-    if (geminiRow) geminiRow.style.display = p === "gemini" ? "flex" : "none";
-  };
-
-  if (providerSel) {
-    providerSel.value = localStorage.getItem("nlm_ai_provider") || "omniroute";
-    syncProviderUI();
-    providerSel.addEventListener("change", () => {
-      try { localStorage.setItem("nlm_ai_provider", providerSel.value); } catch (e) {}
-      syncProviderUI();
-    });
-  }
-  if (omniUrlInp) omniUrlInp.value = localStorage.getItem("nlm_omni_url") || "http://127.0.0.1:20128/v1";
-  if (omniModelInp) omniModelInp.value = localStorage.getItem("nlm_omni_model") || "auto";
-  if (omniKeyInp) omniKeyInp.value = localStorage.getItem("nlm_omni_key") || "";
-
-  document.getElementById("btn-save-omni")?.addEventListener("click", () => {
-    const u = (omniUrlInp?.value || "http://127.0.0.1:20128/v1").trim();
-    const m = (omniModelInp?.value || "auto").trim();
-    const k = (omniKeyInp?.value || "").trim();
-    try {
-      localStorage.setItem("nlm_omni_url", u);
-      localStorage.setItem("nlm_omni_model", m);
-      if (k) localStorage.setItem("nlm_omni_key", k);
-      else localStorage.removeItem("nlm_omni_key");
-    } catch (e) {}
-    if (aiProvStatus) aiProvStatus.textContent = `✅ OmniRoute Saved (${m})`;
-  });
-
-  document.getElementById("btn-omni-models")?.addEventListener("click", async () => {
-    const baseUrl = (omniUrlInp?.value || "http://127.0.0.1:20128/v1").trim().replace(/\/+$/, "");
-    const k = (omniKeyInp?.value || "").trim();
-    const headers = k ? { Authorization: `Bearer ${k}` } : {};
-    if (aiProvStatus) aiProvStatus.textContent = "⏳ Loading models...";
-    const res = await sendToBridge({ type: "NLM_AI_FETCH", url: `${baseUrl}/models`, method: "GET", headers }, 10000);
-    if (res && res.success && Array.isArray(res.data?.data)) {
-      const dl = document.getElementById("omni-models-list");
-      const models = res.data.data.map((m) => m.id).filter(Boolean);
-      if (dl) dl.innerHTML = models.map((id) => `<option value="${escapeHtml(id)}">`).join("");
-      if (aiProvStatus) aiProvStatus.textContent = `✅ ${models.length} models loaded!`;
-    } else {
-      if (aiProvStatus) aiProvStatus.textContent = `⚠️ ${res?.error || "OmniRoute not reachable"}`;
-    }
-  });
 
   // Gemini API Key controls
   const keyInput = document.getElementById("gemini-api-key-input");
@@ -1617,6 +1469,278 @@ function sendToBridge(payload, timeoutMs = 35000) {
   });
 }
 
+
+// v7.9.0: Rename + Download — khula hua Short: View prompt padho, dashboard prompts se match karo,
+// Artifact title mein matched title likho, phir Download dabao (header, nahi to 3-dot menu).
+let renameDownloadRunning = false;
+window.renameDownloadCurrentShort = async function (download) {
+  if (renameDownloadRunning) { updateGlobalStatus("⏳ Rename + Download abhi chal raha hai...", "ready"); return; }
+  if (!allShorts || !allShorts.length) { updateGlobalStatus("⚠️ Dashboard mein koi prompt nahi hai — pehle prompts paste/load karo.", "error"); return; }
+  if (!confirm("Khula hua Short rename + download karna hai?\n\nNotebookLM mein Short ka detail panel khula hona chahiye, aur extension usi Chrome mein loaded hona chahiye jisme ye prompts save hain.\n\nOK dabao to shuru karein.")) return;
+  renameDownloadRunning = true;
+  updateGlobalStatus("🏷️ Khule Short ka prompt padh rahe hain, dashboard prompts se match kar rahe hain...", "ready");
+  const prompts = allShorts.filter((s) => s && s.prompt).map((s) => ({ number: s.number, title: s.title, prompt: String(s.prompt).slice(0, 3000) }));
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: download === false ? "rename_only" : "rename_download", prompts: prompts, focusTab: true }, COMMAND_TIMEOUT_MS);
+  renameDownloadRunning = false;
+  if (res && res.success) {
+    const d = res.data || {};
+    updateGlobalStatus(`✓ Rename + Download ho gaya: "${d.oldTitle || ""}" → "${d.newTitle || ""}"${d.downloadLocation ? ` (Download: ${d.downloadLocation})` : ""}`, "success");
+  } else {
+    updateGlobalStatus(`⚠️ Rename + Download nahi hua: ${res?.error || "NotebookLM se response nahi mila."}`, "error");
+  }
+};
+function setupRenameDownloadControls() {
+  document.getElementById("btn-rename-download")?.addEventListener("click", () => window.renameDownloadCurrentShort(true));
+  document.getElementById("btn-rename-only")?.addEventListener("click", () => window.renameDownloadCurrentShort(false));
+}
+
+// ================= v7.10.0: AI Auto — khud rename + download (Rocky, 27 Nov 2026) =================
+// Flow: RUN -> prompts ek-ek karke bhejo (Auto-Batch) -> ~30 min wait (generation) -> Studio ke naye
+// items ka prompt padh ke match karo -> mila to title + download, nahi mila to skip. Limit par agla
+// batch apne aap resume hota hai (NotebookLM ke "available after" time par, existing auto-resume).
+// Batch record nlmState.aiAuto mein hai — persistState se localStorage + extension storage dono mein
+// bachta hai, to dashboard reload / browser restart se bhi nahi khota. Content script mein pass
+// ghanton chal sakta hai, isliye dashboard 30s mein ek baar auto_ai_status poll karta hai; lamba
+// command timeout (2h15m) sirf backup hai.
+const AI_AUTO_COMMAND_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 15 * 60 * 1000;
+let aiAutoRunning = false;
+let aiAutoPollTimer = null;
+let aiAutoSettled = false;
+let aiAutoRunAuto = false;
+let aiAutoStopPending = false;   // bhejte waqt Stop daba diya — pass shuru hi mat karo
+
+function setupAiAutoControls() {
+  document.getElementById("btn-ai-auto-start")?.addEventListener("click", () => window.startAiAutoFlow());
+  document.getElementById("btn-ai-auto-stop")?.addEventListener("click", () => window.stopAiAutoFlow());
+}
+
+function renderAiAutoPanel() {
+  const box = document.getElementById("ai-auto-status");
+  const startBtn = document.getElementById("btn-ai-auto-start");
+  const stopBtn = document.getElementById("btn-ai-auto-stop");
+  if (startBtn) startBtn.disabled = !!aiAutoRunning;
+  if (stopBtn) stopBtn.disabled = !aiAutoRunning;
+  if (!box) return;
+  const a = nlmState.aiAuto;
+  if (!a) { box.textContent = "Abhi koi AI Auto run nahi hua. Start dabao to pehle batch bhejega, phir ~30 min wait karke khud rename + download karega."; return; }
+  const c = a.counts || {};
+  const range = (a.batchStart !== null && a.batchStart !== undefined) ? ("Batch P" + a.batchStart + ((a.batchEnd !== null && a.batchEnd !== undefined) ? "–P" + a.batchEnd : "")) : "Batch —";
+  const labels = { sending: "📤 Bhej raha hai…", waiting: "⏳ Generation ka wait (~30 min)…", renaming: "🏷️ Rename + Download kar raha hai…", done: "✅ Poora ho gaya", stopped: "⏹ Roka gaya", quota: "🛑 Limit khatam — agle batch ka wait", timeout: "⌛ Wait timeout (2 ghante)", "no-send": "⚠️ Kuch bheja nahi gaya", unknown: "❓ Status nahi mila" };
+  let line = (labels[a.status] || a.status || "") + " · " + range + " · bheje: " + (c.sent || 0) + " · check: " + (c.checked || 0) + " · rename: " + (c.renamed || 0) + " · download: " + (c.downloaded || 0) + " · pehle se done: " + (c.done || 0) + " · skip: " + (c.skipped || 0) + " · fail: " + (c.failed || 0);
+  const nextAt = a.nextResumeAt || (a.status === "quota" ? nlmState.resumeAtMs : null);
+  if (nextAt) line += " · agla batch: " + fmtTime(nextAt);
+  box.textContent = line;
+}
+
+function stopAiAutoPolling() {
+  if (aiAutoPollTimer) { clearTimeout(aiAutoPollTimer); aiAutoPollTimer = null; }
+}
+function startAiAutoPolling() {
+  stopAiAutoPolling();
+  const tick = async () => {
+    if (!aiAutoRunning) return;
+    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status" }, 15000);
+    const d = res && res.data;
+    if (d && d.status) {
+      const a = nlmState.aiAuto || {};
+      if (d.counts) a.counts = d.counts;
+      if (Array.isArray(d.items)) a.items = d.items;
+      a.status = d.status;
+      nlmState.aiAuto = a;
+      persistState({ aiAuto: a });
+      renderAiAutoPanel();
+      if (["done", "stopped", "quota", "timeout", "no-send"].indexOf(d.status) >= 0) {
+        finalizeAiAuto({ success: d.status === "done", quotaExhausted: d.status === "quota", error: d.quotaError || "", data: d }, "poll");
+        return;
+      }
+    }
+    aiAutoPollTimer = setTimeout(tick, 30000);
+  };
+  aiAutoPollTimer = setTimeout(tick, 30000);
+}
+
+function finalizeAiAuto(res, source) {
+  if (aiAutoSettled) return;
+  aiAutoSettled = true;
+  aiAutoRunning = false;
+  stopAiAutoPolling();
+  const d = (res && res.data) || {};
+  const a = nlmState.aiAuto || {};
+  if (d.counts) a.counts = d.counts;
+  if (Array.isArray(d.items)) a.items = d.items;
+  if (d.status) a.status = d.status;
+  if (d.quotaError) a.quotaError = d.quotaError;
+  if (d.nextResumeAt) a.nextResumeAt = d.nextResumeAt;
+  nlmState.aiAuto = a;
+  persistState({ aiAuto: a });
+  renderAiAutoPanel();
+  const c = a.counts || {};
+  if (res && res.success) {
+    const msg = "🤖 AI Auto poora: " + (c.checked || 0) + " check, " + (c.renamed || 0) + " rename + " + (c.downloaded || 0) + " download, " + (c.done || 0) + " pehle se done, " + (c.skipped || 0) + " skip, " + (c.failed || 0) + " fail.";
+    addLog(msg, "success");
+    updateGlobalStatus("✅ " + msg, "success");
+    return;
+  }
+  if (d.status === "quota" || (res && res.quotaExhausted)) {
+    const errText = (res && res.error) || d.quotaError || "AI usage limit reached.";
+    const next = getPendingList()[0];
+    addLog("🛑 AI Auto: limit aayi (" + errText + "). Rename pass ruka — agla batch reset par chalega.", "error");
+    if (next) {
+      handleLimitHit(next.number, errText, aiAutoRunAuto);
+      a.nextResumeAt = nlmState.resumeAtMs || null;
+      persistState({ aiAuto: a });
+      renderAiAutoPanel();
+    } else {
+      updateGlobalStatus("🛑 AI Auto: limit aayi, par koi pending prompt nahi bacha.", "error");
+    }
+    return;
+  }
+  if (d.status === "timeout") {
+    addLog("⌛ AI Auto: 2 ghante wait ke baad bhi generation khatam nahi hui — dobara chalao, wahi batch ka rename pass chalega (dobara bheja nahi jayega).", "error");
+    updateGlobalStatus("⌛ AI Auto: wait timeout (2 ghante) — dobara chalane par wahi batch ka rename pass chalega.", "error");
+    return;
+  }
+  if (d.status === "stopped") {
+    addLog("⏹ AI Auto rok diya gaya.", "ready");
+    updateGlobalStatus("⏹ AI Auto rok diya gaya.", "ready");
+    return;
+  }
+  if (res && res.timedOut) {
+    addLog("⌛ AI Auto: NotebookLM se jawab nahi aaya — pass abhi bhi wahan chal raha ho sakta hai. Status poll karo ya dobara chalao.", "error");
+    updateGlobalStatus("⌛ AI Auto: jawab nahi aaya (timeout) — progress extension mein save hai.", "error");
+    return;
+  }
+  const msg = "⚠️ AI Auto poora nahi hua: " + ((res && res.error) || "unknown error");
+  addLog(msg + " (status: " + (d.status || "?") + ")", "error");
+  updateGlobalStatus(msg, "error");
+}
+
+window.startAiAutoFlow = async function (opts) {
+  const auto = !!(opts && opts.auto === true);
+  if (aiAutoRunning || batchRunning) { if (!auto) updateGlobalStatus("⏳ Pehle se ek batch / AI Auto chal raha hai — khatam hone do ya Stop dabao.", "ready"); return; }
+  clearAutoResumeTimer();
+  aiAutoStopPending = false;
+  // Pichla rename pass timeout/rok diya gaya tha? To wahi batch ka pass dobara chalao, dobara bhejo mat.
+  const prev = nlmState.aiAuto;
+  const retryPass = prev && prev.enabled && (prev.status === "timeout" || prev.status === "stopped") && Array.isArray(prev.sentNumbers) && prev.sentNumbers.length > 0;
+  if (retryPass) {
+    const items = prev.sentNumbers.map((n) => allShorts.find((s) => s.number === n)).filter(Boolean)
+      .map((s) => ({ number: s.number, title: s.title, prompt: String(s.prompt || "").slice(0, 3000), types: outputsOf(s) }));
+    if (!items.length) { updateGlobalStatus("⚠️ Pichle batch ke prompts dashboard mein nahi mile — naya batch bhejo.", "error"); return; }
+    addLog("↻ Pichla batch (P" + prev.batchStart + "–P" + prev.batchEnd + ") dobara rename pass chala rahe hain — dobara bheja nahi jayega.", "ready");
+    aiAutoRunning = true; aiAutoSettled = false; aiAutoRunAuto = auto;
+    prev.status = "waiting";
+    persistState({ aiAuto: prev });
+    renderAiAutoPanel();
+    startAiAutoPolling();
+    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai", prompts: items, batchStart: prev.batchStart, batchEnd: prev.batchEnd, sentNumbers: prev.sentNumbers.slice(), download: true, focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
+    finalizeAiAuto(res, "command");
+    return;
+  }
+  const pendingBefore = getPendingList();
+  if (!pendingBefore.length) {
+    if (!auto) alert("🎉 Saare prompts pehle se completed hain!\n\nNaye prompts daalein ya 'Reset Ticks' dabakar dobara shuru karein.");
+    persistState({ status: "done", resumeFromPoint: null });
+    renderResumeBanner();
+    return;
+  }
+  if (!auto) {
+    const ok = confirm("🤖 AI Auto shuru karein?\n\n1) Pehle pending prompts ek-ek karke NotebookLM mein bheje jayenge.\n2) Phir ~30 min wait hoga jab tak video/audio ban jayein.\n3) Phir Studio ke items ka prompt padh ke match kiya jayega — mila to sahi title + download, nahi mila to skip.\n4) Limit aane par agla batch apne aap resume hoga (auto-resume ON ho jayega).\n\nDashboard tab khula rakhna behtar hai; band ho jaye to bhi progress extension mein save rehta hai.");
+    if (!ok) return;
+  }
+  // Agla batch apne aap chale, isliye auto-resume is run ke liye ON karo (Rocky band kar sakta hai).
+  if (!nlmState.settings.autoResume) {
+    nlmState.settings.autoResume = true;
+    const chk = document.getElementById("opt-auto-resume"); if (chk) chk.checked = true;
+    addLog("🤖 AI Auto ke liye auto-resume ON kiya — limit reset par agla batch apne aap chalega.", "ready");
+  }
+  const sentNumbers = [];
+  nlmState.aiAuto = {
+    enabled: true, batchStart: pendingBefore[0].number, batchEnd: null,
+    sentNumbers: [], sentAt: Date.now(), status: "sending",
+    counts: { sent: 0, checked: 0, renamed: 0, downloaded: 0, done: 0, skipped: 0, failed: 0 },
+    items: [], nextResumeAt: null, quotaError: ""
+  };
+  persistState({ aiAuto: nlmState.aiAuto, settings: nlmState.settings });
+  renderAiAutoPanel();
+  aiAutoRunning = true; aiAutoSettled = false; aiAutoRunAuto = auto;
+  updateGlobalStatus("🤖 AI Auto: batch bhej rahe hain...", "ready");
+  await startAutoBatch({ auto: auto, onOutputSent: (num) => { if (sentNumbers.indexOf(num) < 0) sentNumbers.push(num); } });
+  if (aiAutoStopPending) {
+    aiAutoStopPending = false;
+    nlmState.aiAuto.status = "stopped";
+    persistState({ aiAuto: nlmState.aiAuto });
+    renderAiAutoPanel();
+    aiAutoRunning = false;
+    updateGlobalStatus("⏹ AI Auto rok diya gaya (bhejte waqt).", "ready");
+    addLog("⏹ AI Auto rok diya gaya — rename pass nahi chala.", "ready");
+    return;
+  }
+  if (!sentNumbers.length) {
+    nlmState.aiAuto.status = "no-send";
+    persistState({ aiAuto: nlmState.aiAuto });
+    renderAiAutoPanel();
+    aiAutoRunning = false;
+    updateGlobalStatus("🤖 AI Auto: is batch mein kuch bheja nahi gaya (pehle se limit thi ya sab done) — rename pass skip.", "error");
+    addLog("🤖 AI Auto: kuch bheja nahi gaya — rename pass nahi chala.", "error");
+    return;
+  }
+  sentNumbers.sort((a, b) => a - b);
+  const sentItems = sentNumbers.map((n) => allShorts.find((s) => s.number === n)).filter(Boolean)
+    .map((s) => ({ number: s.number, title: s.title, prompt: String(s.prompt || "").slice(0, 3000), types: outputsOf(s) }));
+  nlmState.aiAuto.sentNumbers = sentNumbers.slice();
+  nlmState.aiAuto.batchEnd = sentNumbers[sentNumbers.length - 1];
+  nlmState.aiAuto.status = "waiting";
+  nlmState.aiAuto.counts.sent = sentNumbers.length;
+  persistState({ aiAuto: nlmState.aiAuto });
+  renderAiAutoPanel();
+  startAiAutoPolling();
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai", prompts: sentItems, batchStart: nlmState.aiAuto.batchStart, batchEnd: nlmState.aiAuto.batchEnd, sentNumbers: sentNumbers.slice(), download: true, focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
+  finalizeAiAuto(res, "command");
+};
+
+window.stopAiAutoFlow = function () {
+  const a = nlmState.aiAuto;
+  if (!aiAutoRunning && !(a && ["waiting", "renaming", "sending"].indexOf(a.status) >= 0)) {
+    updateGlobalStatus("AI Auto abhi chal nahi raha.", "ready");
+    return;
+  }
+  aiAutoStopPending = true;   // bhejte waqt Stop: pass shuru hi mat karo
+  if (a) { a.enabled = false; persistState({ aiAuto: a }); }
+  sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_stop" }, 10000).catch(() => {});
+  addLog("⏹ AI Auto rokne ka signal bheja — chal raha pass agle checkpoint par ruk jayega.", "ready");
+  updateGlobalStatus("⏹ AI Auto rok rahe hain...", "ready");
+  renderAiAutoPanel();
+};
+
+// Dashboard reload hua jab AI Auto chal raha tha: content script se status dobara lo,
+// chal raha ho to polling wapas shuru karo (dobara bhejo mat).
+async function resumeAiAutoAfterReload() {
+  const a = nlmState.aiAuto;
+  if (!a || !a.enabled) return;
+  if (a.status !== "waiting" && a.status !== "renaming" && a.status !== "sending") return;
+  addLog("♻️ Dashboard reload hua — AI Auto ka status dobara check kar rahe hain...", "ready");
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status" }, 15000);
+  const d = res && res.data;
+  if (d && d.status) {
+    if (d.counts) a.counts = d.counts;
+    if (Array.isArray(d.items)) a.items = d.items;
+    a.status = d.status;
+    persistState({ aiAuto: a });
+    renderAiAutoPanel();
+    if (d.status === "waiting" || d.status === "renaming" || d.autoAiRunning) {
+      aiAutoRunning = true; aiAutoSettled = false; aiAutoRunAuto = false;
+      startAiAutoPolling();
+    } else {
+      addLog("🤖 AI Auto ka aakhri status: " + d.status + ".", "ready");
+    }
+  } else {
+    a.status = "unknown";
+    persistState({ aiAuto: a });
+    renderAiAutoPanel();
+    addLog("⚠️ AI Auto ka status NotebookLM se nahi mila (extension reload hua hoga) — Studio mein check karo.", "error");
+  }
+}
 function setupAutoBatchControls() {
   document.getElementById("btn-start-batch")?.addEventListener("click", () => startAutoBatch());
   document.getElementById("btn-stop-batch")?.addEventListener("click", stopAutoBatch);
@@ -1660,6 +1784,8 @@ const OUT_OPT_GROUPS = {
   quiz:        { label: "📝 Quiz",        groups: [["Questions", ["Fewer", "Standard (default)", "More"]], ["Difficulty", ["Easy", "Medium (default)", "Hard"]]] },
   infographic: { label: "📊 Infographic", groups: [["Orientation", ["Landscape", "Portrait", "Square"]], ["Style", ["Auto-select", "Kawaii", "Clay", "Sketch note", "Anime", "Editorial", "Instructional", "Bento grid", "Bricks", "Scientific", "Professional"]], ["Detail", ["Concise", "Standard", "Detailed"]]] }
 };
+function loadOutOpts() { try { return JSON.parse(localStorage.getItem("nlm_out_opts") || "{}"); } catch (e) { return {}; } }
+function saveOutOpts(o) { try { localStorage.setItem("nlm_out_opts", JSON.stringify(o)); } catch (e) {} }
 function savedChoicesFor(mode, num) {
   const g = OUT_OPT_GROUPS[mode]; if (!g) return [];
   const it = (typeof allShorts !== "undefined" && num != null) ? allShorts.find((s) => s.number === num) : null;
@@ -1677,8 +1803,7 @@ function optsSummary(item) {
 window.setItemOpt = function (num, gname, val) {
   const it = allShorts.find((s) => s.number === num); if (!it) return;
   if (gname.indexOf("Length") === 0 && !longOk(it.opts || {}, val)) { renderAllShortsCards(); return; }
-  const lenKey = OUT_OPT_GROUPS.audio.groups[1][0];
-  if (gname === "Format" && typeOf(it) === "audio" && val !== "Deep dive" && it.opts && it.opts[lenKey] === "Long") delete it.opts[lenKey];
+  if (gname === "Format" && typeOf(it) === "audio" && val !== "Deep dive" && it.opts && it.opts[Object.keys(OUT_OPT_GROUPS.audio.groups.map((g) => g[0]))[1]] === "Long") delete it.opts[OUT_OPT_GROUPS.audio.groups[1][0]];
   it.opts = it.opts || {}; if (val) it.opts[gname] = val; else delete it.opts[gname];
   saveShortsData(); renderAllShortsCards();
 };
@@ -1755,7 +1880,6 @@ function handleLimitHit(pointNumber, errStr, auto) {
   });
   addLog(`🛑 Limit hit at Prompt P${pointNumber}. Resume point saved${timeMatch ? ` (NotebookLM says: available after ${timeMatch[1].trim()})` : ""}.`, "error");
   if (nlmState.settings.autoResume) scheduleAutoResume(resumeAt);
-  if (nlmState.settings.autoDownload30m) scheduleDownloadWait30m("Limit hit");
   renderResumeBanner();
 }
 
@@ -1874,7 +1998,6 @@ async function startAutoBatch(opts) {
   batchRunning = true;
   batchStopRequested = false;
   let consecutiveErrors = 0;
-  let firstSkippedPoint = null;
   let stepNo = 0;
   const totalSteps = pendingShorts.reduce((n, s) => n + todoOutputs(s).length, 0);
   updateBatchUI(true, "Starting...");
@@ -1943,6 +2066,7 @@ async function startAutoBatch(opts) {
       if (res && res.success) {
         lastSentOutput = outId;
         markOutputDone(item.number, outId);
+        if (opts && typeof opts.onOutputSent === "function") { try { opts.onOutputSent(item.number, outId); } catch (e) {} }
         addLog(`✓ P${item.number} · ${OUTPUT_LABEL[outId] || outId} bhej diya${res.confirmed === false ? " (confirmation nahi mila - Studio mein check karein)" : ""}`, res.confirmed === false ? "error" : "success");
         continue;
       }
@@ -2044,7 +2168,6 @@ async function startAutoBatch(opts) {
     }
 
     consecutiveErrors++;
-    if (firstSkippedPoint === null) firstSkippedPoint = item.number;
     if (consecutiveErrors >= 2) {
       stopBatchWith("error", errStr, item.number);
       updateGlobalStatus(`🛑 Consecutive Errors (${consecutiveErrors}): ${errStr}. Batch rok diya gaya hai. Resume point: P${item.number}.`, "error");
@@ -2063,21 +2186,16 @@ async function startAutoBatch(opts) {
   updateBatchUI(false);
   document.querySelectorAll(".short-card").forEach((c) => c.classList.remove("running"));
 
-  const remaining = allShorts.filter((s) => (currentSection === "all" || typeOf(s) === currentSection) && !completedPoints.has(s.number) && outputsOf(s).length > 0);
+  const remaining = allShorts.filter((s) => !completedPoints.has(s.number) && outputsOf(s).length > 0);
   if (remaining.length === 0 && allShorts.length > 0) {
     persistState({ status: "done", resumeFromPoint: null, resumeAtMs: null, lastMessage: "All prompts done" });
     renderResumeBanner();
-    updateGlobalStatus(`🎉 Mubarak ho! Saare Prompts successfully generate ho chuke hain!`, "success");
-    if (nlmState.settings.autoDownload30m) scheduleDownloadWait30m("Batch complete");
-    if (!auto) alert(`🎉 Mubarak ho! Saare Prompts successfully generate ho chuke hain!`);
+    updateGlobalStatus(`🎉 Mubarak ho! Saare ${allShorts.length} Prompts successfully generate ho chuke hain!`, "success");
+    if (!auto) alert(`🎉 Mubarak ho! Saare ${allShorts.length} Prompts successfully generate ho chuke hain!`);
   } else if (wasStopped && nlmState.status === "running") {
     // plain user Stop: remember where to continue
     persistState({ status: "stopped", resumeFromPoint: remaining[0] ? remaining[0].number : null });
     renderResumeBanner();
-  } else if (!wasStopped && firstSkippedPoint !== null && nlmState.status === "running") {
-    persistState({ status: "error", resumeFromPoint: firstSkippedPoint, lastMessage: `P${firstSkippedPoint} skipped due to error` });
-    renderResumeBanner();
-    updateGlobalStatus(`⚠️ Batch poora hua lekin Point P${firstSkippedPoint} (ya aur kuch prompts) error ki wajah se bache hain. Resume dabakar dobara bhej sakte ho.`, "error");
   }
 }
 
@@ -2113,215 +2231,17 @@ function scheduleAutoResume(atMs) {
 }
 
 let lastWakeAt = 0;
-function onAutoResumeWake(evt) {
-  const reason = evt?.detail ? (JSON.parse(evt.detail)?.reason) : (evt?.reason || evt?.data?.reason || "alarm");
-  if (reason === "download_ready") {
-    onDownloadAlarmWake();
-    return;
-  }
+function onAutoResumeWake() {
   if (Date.now() - lastWakeAt < 15000) return; // timer + alarm both fire: run once
   lastWakeAt = Date.now();
   clearAutoResumeTimer();
   if (!nlmState.settings.autoResume || batchRunning) return;
   if (nlmState.status !== "limit" && nlmState.status !== "error") return;
   addLog("⏰ Auto-resume: limit reset time aa gaya - batch dobara shuru.", "ready");
+  // v7.10.0: AI Auto on hai to agla batch bhi AI flow se chalega (bhejo + wait + rename/download),
+  // nahi to purana Auto-Batch hi chalega.
+  if (nlmState.aiAuto && nlmState.aiAuto.enabled) { startAiAutoFlow({ auto: true }); return; }
   startAutoBatch({ auto: true });
-}
-
-// ================= v7.9.0 : 30-Min Auto-Download, Prompt Match, Rename & Separate Folder =================
-let dlWaitTimer = null;
-let dlCountdownInterval = null;
-let renameDownloadRunning = false;
-
-function getDownloadFolderName() {
-  const inp = document.getElementById("dl-folder-name");
-  const raw = (inp ? inp.value : localStorage.getItem("nlm_download_folder")) || "";
-  return raw.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").replace(/\s+/g, " ").trim() || "NotebookLM_Outputs";
-}
-
-function updateFolderPreview() {
-  const prev = document.getElementById("dl-folder-preview");
-  if (prev) prev.textContent = `→ Downloads/${getDownloadFolderName()}/`;
-}
-
-function clearDownloadWaitTimers() {
-  if (dlWaitTimer) { clearTimeout(dlWaitTimer); dlWaitTimer = null; }
-  if (dlCountdownInterval) { clearInterval(dlCountdownInterval); dlCountdownInterval = null; }
-}
-
-function renderDownloadTimerBanner() {
-  const banner = document.getElementById("dl-timer-banner");
-  const txt = document.getElementById("dl-timer-text");
-  if (!banner || !txt) return;
-  const at = nlmState.downloadWaitAtMs;
-  if (!at || at <= Date.now()) {
-    banner.style.display = "none";
-    return;
-  }
-  banner.style.display = "flex";
-  const remSec = Math.max(0, Math.ceil((at - Date.now()) / 1000));
-  const min = Math.floor(remSec / 60);
-  const sec = String(remSec % 60).padStart(2, "0");
-  txt.textContent = `⏳ 30-Min Auto-Download Timer: ${min}:${sec} baad Studio ke sab outputs Rename + Download honge → Downloads/${getDownloadFolderName()}/`;
-}
-
-function scheduleDownloadWait30m(reasonLabel) {
-  clearDownloadWaitTimers();
-  const atMs = Date.now() + 30 * 60 * 1000;
-  persistState({ downloadWaitAtMs: atMs });
-  sendToBridge({ type: "NLM_DOWNLOAD_ALARM_SET", when: atMs }, 5000);
-  dlWaitTimer = setTimeout(onDownloadAlarmWake, 30 * 60 * 1000);
-  dlCountdownInterval = setInterval(renderDownloadTimerBanner, 1000);
-  renderDownloadTimerBanner();
-  addLog(`⏰ ${reasonLabel || "Done"}: Theek 30 min baad (${fmtTime(atMs)}) Rename & Download apne aap shuru hoga → Downloads/${getDownloadFolderName()}/`, "ready");
-}
-
-function cancelDownloadWait() {
-  clearDownloadWaitTimers();
-  persistState({ downloadWaitAtMs: null });
-  try { sendToBridge({ type: "NLM_DOWNLOAD_ALARM_CLEAR" }, 4000); } catch (e) {}
-  renderDownloadTimerBanner();
-  addLog("✖ 30-Min Auto-Download timer cancel kar diya gaya.", "ready");
-}
-
-function onDownloadAlarmWake() {
-  clearDownloadWaitTimers();
-  persistState({ downloadWaitAtMs: null });
-  renderDownloadTimerBanner();
-  if (renameDownloadRunning) return;
-  addLog("⏰ 30 minute poore hue! Ab Studio ke outputs ka prompt padhkar Rename + Download shuru ho raha hai...", "ready");
-  runRenameAndDownloadBatch({ auto: true });
-}
-
-function normForMatch(str) {
-  return String(str || "").toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, " ").trim();
-}
-
-function matchPromptToShortLocal(promptText) {
-  const norm = normForMatch(promptText);
-  if (!norm || !allShorts.length) return null;
-  const prefix = norm.slice(0, 80);
-
-  let best = null;
-  let bestScore = 0;
-  const pWords = new Set(norm.split(" ").filter((w) => w.length > 2));
-
-  for (const s of allShorts) {
-    const sNorm = normForMatch(s.prompt);
-    if (!sNorm) continue;
-    if (sNorm === norm || sNorm.includes(prefix) || norm.includes(sNorm.slice(0, 80))) {
-      return { item: s, score: 1.0 };
-    }
-    if (pWords.size === 0) continue;
-    const sWords = new Set(sNorm.split(" ").filter((w) => w.length > 2));
-    let hit = 0;
-    for (const w of pWords) if (sWords.has(w)) hit++;
-    const score = hit / Math.max(pWords.size, 1);
-    if (score > bestScore) {
-      bestScore = score;
-      best = s;
-    }
-  }
-  return best && bestScore >= 0.45 ? { item: best, score: bestScore } : null;
-}
-
-async function matchPromptWithAI(promptText) {
-  const provider = localStorage.getItem("nlm_ai_provider") || "omniroute";
-  if (provider !== "omniroute") return null;
-  if (!allShorts.length) return null;
-  const catalog = allShorts.slice(0, 80).map((s) => `#${s.number}: ${s.title} | ${(s.prompt || "").slice(0, 120)}`).join("\n");
-  const q = `Match this NotebookLM prompt to the exact item number from the list below. Reply ONLY with the integer number (or 0 if none match).\n\nPrompt:\n${promptText.slice(0, 600)}\n\nList:\n${catalog}`;
-  try {
-    const ans = await callOmniRouteChat(q, false);
-    const m = String(ans || "").match(/\d+/);
-    if (m) {
-      const num = parseInt(m[0], 10);
-      return allShorts.find((s) => s.number === num) || null;
-    }
-  } catch (e) {}
-  return null;
-}
-
-async function runRenameAndDownloadBatch(opts) {
-  const auto = !!(opts && opts.auto);
-  if (renameDownloadRunning) return;
-  renameDownloadRunning = true;
-  const btn = document.getElementById("btn-run-rename-download");
-  if (btn) btn.disabled = true;
-
-  const folder = getDownloadFolderName();
-  const doRename = !!nlmState.settings.renameInNlm;
-  try {
-    updateGlobalStatus(`🔍 Studio panel scan kar rahe hain (Folder: Downloads/${folder}/)...`, "ready");
-    const scan = await sendToBridge({ type: "NLM_COMMAND", mode: "scan_artifacts", focusTab: true }, 30000);
-    if (!scan || !scan.success || !Array.isArray(scan.data?.artifacts)) {
-      const msg = scan?.error || "Studio artifacts scan nahi ho sake.";
-      updateGlobalStatus(`⚠️ ${msg}`, "error");
-      if (!auto) alert(`⚠️ ${msg}`);
-      return;
-    }
-
-    const artifacts = scan.data.artifacts;
-    const ready = artifacts.filter((a) => !a.isGenerating);
-    if (ready.length === 0) {
-      const msg = artifacts.length ? "Sabhi outputs abhi generate ho rahe hain (koi ready nahi hai)." : "Studio mein koi generated output nahi mila.";
-      updateGlobalStatus(`ℹ️ ${msg}`, "ready");
-      if (!auto) alert(`ℹ️ ${msg}`);
-      return;
-    }
-
-    addLog(`📥 Rename & Download shuru: ${ready.length} ready outputs (${artifacts.length - ready.length} abhi ban rahe hain) → Downloads/${folder}/`, "ready");
-    let okCount = 0;
-
-    for (let i = 0; i < ready.length; i++) {
-      const art = ready[i];
-      updateGlobalStatus(`📥 [${i + 1}/${ready.length}] "${art.cardTitle}" ka prompt padh rahe hain...`, "ready");
-
-      const pr = await sendToBridge({ type: "NLM_COMMAND", mode: "read_artifact_prompt", index: art.index, focusTab: true }, 35000);
-      const promptText = pr?.data?.promptText || "";
-
-      let matchedItem = null;
-      if (promptText) {
-        const localMatch = matchPromptToShortLocal(promptText);
-        if (localMatch && localMatch.score >= 0.65) {
-          matchedItem = localMatch.item;
-        } else {
-          matchedItem = (await matchPromptWithAI(promptText)) || (localMatch ? localMatch.item : null);
-        }
-      }
-
-      const finalTitle = matchedItem
-        ? (matchedItem.title || `Prompt ${matchedItem.label || matchedItem.number}`)
-        : art.cardTitle;
-
-      addLog(`🏷️ [${i + 1}/${ready.length}] Match: ${matchedItem ? `P${matchedItem.number} (${finalTitle})` : `No match, keeping "${finalTitle}"`}`, matchedItem ? "success" : "ready");
-
-      await sendToBridge({ type: "NLM_DOWNLOAD_PREPARE", folder, filename: finalTitle }, 5000);
-      const res = await sendToBridge({
-        type: "NLM_COMMAND",
-        mode: "rename_download_artifact",
-        index: art.index,
-        newTitle: finalTitle,
-        doRename,
-        doDownload: true,
-        focusTab: true
-      }, 45000);
-
-      if (res && res.success) {
-        okCount++;
-        addLog(`✅ [${i + 1}/${ready.length}] Downloaded → Downloads/${folder}/${finalTitle}`, "success");
-      } else {
-        addLog(`⚠️ [${i + 1}/${ready.length}] "${finalTitle}" fail: ${res?.error || "error"}`, "error");
-      }
-      await sleep(2500);
-    }
-
-    updateGlobalStatus(`🎉 Rename & Download poora hua! ${okCount}/${ready.length} files → Downloads/${folder}/`, "success");
-    if (!auto) alert(`🎉 Rename & Download Poora Hua!\n\n${okCount}/${ready.length} files save hui:\nDownloads/${folder}/`);
-  } finally {
-    renameDownloadRunning = false;
-    if (btn) btn.disabled = false;
-  }
 }
 
 function addLog(text, level) {
@@ -2434,9 +2354,7 @@ async function initResumeState() {
     ["opt-allow-later", "allowLater"],
     ["opt-focus-tab", "focusTab"],
     ["opt-auto-resume", "autoResume"],
-    ["opt-wait-finish", "waitFinish"],
-    ["opt-auto-download-30m", "autoDownload30m"],
-    ["opt-rename-in-nlm", "renameInNlm"]
+    ["opt-wait-finish", "waitFinish"]
   ];
   bindings.forEach(([id, key]) => {
     document.getElementById(id)?.addEventListener("change", (e) => {
@@ -2510,33 +2428,12 @@ async function initResumeState() {
   setChk("opt-focus-tab", set.focusTab !== false);
   setChk("opt-auto-resume", set.autoResume);
   setChk("opt-wait-finish", set.waitFinish);
-  setChk("opt-auto-download-30m", set.autoDownload30m !== false);
-  setChk("opt-rename-in-nlm", set.renameInNlm !== false);
-
-  const dlFolderInp = document.getElementById("dl-folder-name");
-  if (dlFolderInp) {
-    dlFolderInp.value = localStorage.getItem("nlm_download_folder") || "";
-    updateFolderPreview();
-    dlFolderInp.addEventListener("input", () => {
-      try { localStorage.setItem("nlm_download_folder", dlFolderInp.value); } catch (e) {}
-      updateFolderPreview();
-      renderDownloadTimerBanner();
-    });
-  }
-  document.getElementById("btn-run-rename-download")?.addEventListener("click", () => runRenameAndDownloadBatch({ auto: false }));
-  document.getElementById("btn-dl-now")?.addEventListener("click", () => { cancelDownloadWait(); runRenameAndDownloadBatch({ auto: false }); });
-  document.getElementById("btn-dl-cancel")?.addEventListener("click", cancelDownloadWait);
-
-  if (nlmState.downloadWaitAtMs && nlmState.downloadWaitAtMs > Date.now()) {
-    const rem = nlmState.downloadWaitAtMs - Date.now();
-    dlWaitTimer = setTimeout(onDownloadAlarmWake, Math.min(rem, 2147000000));
-    dlCountdownInterval = setInterval(renderDownloadTimerBanner, 1000);
-    renderDownloadTimerBanner();
-  }
 
   renderLog();
   renderResumeBanner();
   addLog("Dashboard ready.", "ready");
+  renderAiAutoPanel();
+  resumeAiAutoAfterReload();
 
   // pending auto-resume after a reload / browser restart
   if (set.autoResume && nlmState.status === "limit" && nlmState.resumeAtMs) {

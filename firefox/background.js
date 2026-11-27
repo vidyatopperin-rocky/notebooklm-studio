@@ -186,92 +186,7 @@ function startKeepAlive() {
 const STATE_KEY = "nlm_state";
 const BACKUP_KEY = "nlm_backup";
 const ALARM_NAME = "nlm-resume";
-const ALARM_DOWNLOAD = "nlm-download-wait";
 let stateQueue = Promise.resolve();
-let pendingDownload = null;
-const requeuedDownloadUrls = new Set();
-
-function sanitizePathSegment(str) {
-  return String(str || "")
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
-    .replace(/\s+/g, " ")
-    .replace(/^\.+|\.+$/g, "")
-    .trim()
-    .slice(0, 80);
-}
-
-function sanitizeFileName(str) {
-  return String(str || "NotebookLM_Output")
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
-    .replace(/\s+/g, " ")
-    .replace(/^\.+|\.+$/g, "")
-    .trim()
-    .slice(0, 120) || "NotebookLM_Output";
-}
-
-function inferExtension(item) {
-  const fn = (item && item.filename) ? String(item.filename) : "";
-  const m = fn.match(/(\.[a-z0-9]{2,5})$/i);
-  if (m) return m[1];
-  const mime = ((item && item.mime) || "").toLowerCase();
-  if (mime.includes("mp4")) return ".mp4";
-  if (mime.includes("webm")) return ".webm";
-  if (mime.includes("wav")) return ".wav";
-  if (mime.includes("mpeg") || mime.includes("mp3")) return ".mp3";
-  if (mime.includes("m4a") || mime.includes("aac")) return ".m4a";
-  if (mime.includes("ogg")) return ".ogg";
-  if (mime.includes("png")) return ".png";
-  if (mime.includes("pdf")) return ".pdf";
-  return "";
-}
-
-try {
-  const dl = extApi && extApi.downloads;
-  if (dl && dl.onDeterminingFilename) {
-    dl.onDeterminingFilename.addListener((item, suggest) => {
-      if (pendingDownload && (Date.now() - pendingDownload.setAt < 60000)) {
-        const ref = ((item.referrer || "") + " " + (item.url || "")).toLowerCase();
-        const isNlm = ref.includes("notebook") || ref.includes("googleusercontent") || ref.includes("blob:") || ref.includes("google.com");
-        if (isNlm) {
-          const pd = pendingDownload;
-          pendingDownload = null;
-          const ext = inferExtension(item);
-          const target = (pd.folder ? `${pd.folder}/` : "") + `${pd.filename}${ext}`;
-          try {
-            suggest({ filename: target, conflictAction: "uniquify" });
-            return;
-          } catch (e) {}
-        }
-      }
-      try { suggest(); } catch (e) {}
-    });
-  } else if (dl && dl.onCreated) {
-    // Firefox fallback (Firefox MV3 does not support downloads.onDeterminingFilename)
-    dl.onCreated.addListener(async (item) => {
-      if (!pendingDownload || (Date.now() - pendingDownload.setAt >= 60000)) return;
-      if (!item || !item.url || item.url.startsWith("blob:")) return;
-      if (requeuedDownloadUrls.has(item.url)) {
-        requeuedDownloadUrls.delete(item.url);
-        return;
-      }
-      const ref = ((item.referrer || "") + " " + (item.url || "")).toLowerCase();
-      if (!(ref.includes("notebook") || ref.includes("googleusercontent") || ref.includes("google.com"))) return;
-      const pd = pendingDownload;
-      pendingDownload = null;
-      const ext = inferExtension(item);
-      const target = (pd.folder ? `${pd.folder}/` : "") + `${pd.filename}${ext}`;
-      try {
-        requeuedDownloadUrls.add(item.url);
-        setTimeout(() => requeuedDownloadUrls.delete(item.url), 15000);
-        await dl.cancel(item.id);
-        try { await dl.erase({ id: item.id }); } catch (e) {}
-        await dl.download({ url: item.url, filename: target, conflictAction: "uniquify" });
-      } catch (e) {
-        requeuedDownloadUrls.delete(item.url);
-      }
-    });
-  }
-} catch (e) {}
 
 function storageGet(keys) {
   return new Promise((resolve) => {
@@ -344,44 +259,6 @@ async function handleStateAction(message) {
       await patchState({ resumeAlarmAt: null });
       return { success: true };
     }
-    if (message.action === "nlmDownloadAlarm.set") {
-      const when = Number(message.when);
-      if (!when || when < Date.now() + 1000) {
-        return { success: false, error: "Download alarm time must be in the future" };
-      }
-      extApi.alarms.create(ALARM_DOWNLOAD, { when: when });
-      await patchState({ downloadAlarmAt: when });
-      return { success: true, when: when };
-    }
-    if (message.action === "nlmDownloadAlarm.clear") {
-      try { extApi.alarms.clear(ALARM_DOWNLOAD); } catch (e) {}
-      await patchState({ downloadAlarmAt: null });
-      return { success: true };
-    }
-    if (message.action === "nlmDownload.prepare") {
-      const folder = sanitizePathSegment(message.folder || "");
-      const filename = sanitizeFileName(message.filename || "NotebookLM_Output");
-      pendingDownload = { folder, filename, setAt: Date.now() };
-      return { success: true, folder, filename };
-    }
-    if (message.action === "nlmAi.fetch") {
-      const url = String(message.url || "").trim();
-      if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(url) && !/^https:\/\//i.test(url)) {
-        return { success: false, error: "Invalid AI endpoint URL" };
-      }
-      const resp = await fetch(url, {
-        method: message.method || "POST",
-        headers: message.headers || { "Content-Type": "application/json" },
-        body: message.body != null ? (typeof message.body === "string" ? message.body : JSON.stringify(message.body)) : undefined
-      });
-      const text = await resp.text();
-      let data = null;
-      try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
-      if (!resp.ok) {
-        return { success: false, status: resp.status, error: data?.error?.message || `HTTP ${resp.status}`, data };
-      }
-      return { success: true, status: resp.status, data };
-    }
   } catch (e) {
     return { success: false, error: (e && e.message) || String(e) };
   }
@@ -414,8 +291,6 @@ try {
     extApi.alarms.onAlarm.addListener((alarm) => {
       if (alarm && alarm.name === ALARM_NAME) {
         patchState({ resumeAlarmAt: null }).then(() => wakeDashboards("alarm"));
-      } else if (alarm && alarm.name === ALARM_DOWNLOAD) {
-        patchState({ downloadAlarmAt: null }).then(() => wakeDashboards("download_ready"));
       }
     });
   }
@@ -425,8 +300,6 @@ try {
       const r = await getStateAndBackup();
       const at = r.state && r.state.resumeAlarmAt;
       if (at && at > Date.now() + 1000) extApi.alarms.create(ALARM_NAME, { when: at });
-      const dlAt = r.state && r.state.downloadAlarmAt;
-      if (dlAt && dlAt > Date.now() + 1000) extApi.alarms.create(ALARM_DOWNLOAD, { when: dlAt });
     });
   }
 } catch (e) {}
@@ -486,7 +359,7 @@ if (runtimeApi && runtimeApi.runtime && runtimeApi.runtime.onMessage) {
       }
       return true;
     }
-    if (message && typeof message.action === "string" && (message.action.indexOf("nlmState.") === 0 || message.action.indexOf("nlmAlarm.") === 0 || message.action.indexOf("nlmDownload") === 0 || message.action === "nlmAi.fetch")) {
+    if (message && typeof message.action === "string" && (message.action.indexOf("nlmState.") === 0 || message.action.indexOf("nlmAlarm.") === 0)) {
       const p = handleStateAction(message).then((r) => { try { sendResponse(r); } catch (e) {} return r; });
       if (typeof browser !== "undefined" && browser.runtime) return p;
       return true;
