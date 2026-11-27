@@ -1553,7 +1553,7 @@ const NLM_LANG_PACKS = {
   //  Download is not there, open the 3-dot (...) menu and click Download inside it.
   //  FRESH build: the v7.3-v7.5 Rename+Download code was fully removed in v7.6.0/7.6.1 and is not
   //  in this repo's git history, so nothing here is restored code.
-  const _normPrompt = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").replace(/[\u201c\u201d"']/g, '"').trim();
+  const _normPrompt = (s) => String(s || "").toLowerCase().replace(/[*#`]+/g, " ").replace(/[\u2013\u2014-]+/g, "-").replace(/[\u201c\u201d"']/g, '"').replace(/\s+/g, " ").trim();
   function matchPromptToTitle(promptText, prompts) {
     const list = Array.isArray(prompts) ? prompts : [];
     const norm = _normPrompt(promptText);
@@ -1572,16 +1572,16 @@ const NLM_LANG_PACKS = {
     // 3) strong word overlap on the first 400 chars (covers re-wrapped / lightly edited prompts)
     const head = norm.slice(0, 400);
     const headWords = head.split(" ").filter((w) => w.length > 3);
-    let best = null, bestScore = 0;
+    let best = null, bestScore = 0, bestCommon = 0;
     for (const p of list) {
       if (!p || !p.prompt) continue;
       const bset = new Set(_normPrompt(p.prompt).slice(0, 400).split(" "));
       let common = 0;
       for (const w of headWords) if (bset.has(w)) common++;
       const score = common / Math.max(1, headWords.length);
-      if (score > bestScore) { bestScore = score; best = p; }
+      if (score > bestScore) { bestScore = score; best = p; bestCommon = common; }
     }
-    return bestScore >= 0.8 ? best : null;
+    return (bestScore >= 0.65 && bestCommon >= 4) ? best : null;
   }
   function findArtifactTitleField() {
     const sels = ["input[aria-label*='Artifact title' i]", "input[aria-label*='artifact' i]", "textarea[aria-label*='Artifact title' i]"];
@@ -1621,6 +1621,8 @@ const NLM_LANG_PACKS = {
         if (setter && setter.set) setter.set.call(f, newTitle); else f.value = newTitle;
         f.dispatchEvent(new Event("input", { bubbles: true }));
         f.dispatchEvent(new Event("change", { bubbles: true }));
+        f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+        f.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
       }
     } catch (e) { return { ok: false, error: "Title likhte waqt error: " + (e.message || e) }; }
     try { f.blur(); } catch (e) {}
@@ -1632,7 +1634,12 @@ const NLM_LANG_PACKS = {
     let dialog = null;
     for (let i = 0; i < 10 && !dialog; i++) { await pause(500); dialog = getActiveDialog(); }
     if (!dialog) return { ok: false, error: "View prompt dabane par prompt dialog nahi khula." };
-    const text = (dialog.innerText || dialog.textContent || "");
+    const raw = (dialog.innerText || dialog.textContent || "").trim();
+    const text = raw
+      .replace(/^(?:view\s*)?(?:custom\s*)?prompt(?:\s+and\s+\d*\s*sources?)?\s*\n+/i, "")
+      .replace(/\n+(?:sources?\s*(?:\(\d+\)|\n)[\s\S]*)$/i, "")
+      .replace(/\n+(?:close|done|ok|cancel)\s*$/i, "")
+      .trim() || raw;
     await closeActiveDialogIfOpen();
     await pause(400);
     return { ok: true, prompt: text };
@@ -1883,6 +1890,14 @@ const NLM_LANG_PACKS = {
   }
   async function closeArtifactDetail() {
     if (!findArtifactTitleField()) return { ok: true, how: "already-closed" };
+    // Priority 1: Live NotebookLM "Studio" breadcrumb (section.studio-panel .panel-header-clickable) returns cleanly to Studio list
+    const studioCrumb = Array.from(document.querySelectorAll("section.studio-panel .panel-header-clickable, .studio-panel .panel-header-clickable, .panel-header nav span")).find((el) => isVisible(el) && /^studio$/i.test((el.innerText || el.textContent || "").trim()));
+    if (studioCrumb) {
+      selectElementCleanly(studioCrumb);
+      await pause(800);
+      if (!findArtifactTitleField()) return { ok: true, how: "studio-breadcrumb" };
+    }
+    // Priority 2: Back / Close buttons
     for (const el of document.querySelectorAll(NLM_CONFIG.selectors.clickables)) {
       if (!isVisible(el)) continue;
       const aria = (el.getAttribute("aria-label") || "").trim().toLowerCase();

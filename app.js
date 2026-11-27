@@ -1544,7 +1544,7 @@ function startAiAutoPolling() {
   stopAiAutoPolling();
   const tick = async () => {
     if (!aiAutoRunning) return;
-    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status" }, 15000);
+    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status", focusTab: false }, 15000);
     const d = res && res.data;
     if (d && d.status) {
       const a = nlmState.aiAuto || {};
@@ -1647,7 +1647,7 @@ function startAiExistingPolling() {
   stopAiExistingPolling();
   const tick = async () => {
     if (!aiExistingRunning) return;
-    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status" }, 15000);
+    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status", focusTab: false }, 15000);
     const d = res && res.data;
     if (d && d.status && d.mode === "existing") {
       const a = nlmState.aiExisting || {};
@@ -1741,7 +1741,7 @@ async function resumeAiExistingAfterReload() {
   if (!a || !a.enabled) return;
   if (a.status !== "renaming") return;
   addLog("♻️ Dashboard reload hua — bane hue items wale pass ka status dobara check kar rahe hain...", "ready");
-  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status" }, 15000);
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status", focusTab: false }, 15000);
   const d = res && res.data;
   if (d && d.status && d.mode === "existing") {
     if (d.counts) a.counts = d.counts;
@@ -1852,7 +1852,7 @@ window.stopAiAutoFlow = function () {
   const ex = nlmState.aiExisting;
   if (aiExistingRunning || (ex && ex.status === "renaming")) {
     if (ex) { ex.enabled = false; persistState({ aiExisting: ex }); }
-    sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_stop" }, 10000).catch(() => {});
+    sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_stop", focusTab: false }, 10000).catch(() => {});
     addLog("⏹ Bane hue items wala pass rokne ka signal bheja — chal raha item khatam hote hi ruk jayega.", "ready");
     updateGlobalStatus("⏹ Bane hue items wala pass rok rahe hain...", "ready");
     renderAiExistingPanel();
@@ -1865,7 +1865,7 @@ window.stopAiAutoFlow = function () {
   }
   aiAutoStopPending = true;   // bhejte waqt Stop: pass shuru hi mat karo
   if (a) { a.enabled = false; persistState({ aiAuto: a }); }
-  sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_stop" }, 10000).catch(() => {});
+  sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_stop", focusTab: false }, 10000).catch(() => {});
   addLog("⏹ AI Auto rokne ka signal bheja — chal raha pass agle checkpoint par ruk jayega.", "ready");
   updateGlobalStatus("⏹ AI Auto rok rahe hain...", "ready");
   renderAiAutoPanel();
@@ -1878,7 +1878,7 @@ async function resumeAiAutoAfterReload() {
   if (!a || !a.enabled) return;
   if (a.status !== "waiting" && a.status !== "renaming" && a.status !== "sending") return;
   addLog("♻️ Dashboard reload hua — AI Auto ka status dobara check kar rahe hain...", "ready");
-  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status" }, 15000);
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_status", focusTab: false }, 15000);
   const d = res && res.data;
   if (d && d.status) {
     if (d.counts) a.counts = d.counts;
