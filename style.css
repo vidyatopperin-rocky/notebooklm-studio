@@ -1568,3 +1568,65 @@ body[data-sec="all"] .type-badge { display: inline-flex !important; background: 
 .short-card.downloaded {
   border-color: rgba(56, 189, 248, 0.45);
 }
+
+
+/* v7.10.2: Clean UI polish for card header, badges, filters, and AI Auto panel */
+.short-card-header {
+  flex-wrap: wrap !important;
+  gap: 8px 10px !important;
+  align-items: flex-start !important;
+}
+.short-card-header-left {
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+.short-card-header-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+.short-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.short-status-indicator:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+.short-card.completed .short-status-indicator:not(.dl-indicator) {
+  background: rgba(52, 211, 153, 0.16);
+  border-color: rgba(52, 211, 153, 0.5);
+  color: #6ee7b7;
+}
+.dl-label {
+  font-size: 11px !important;
+  white-space: nowrap;
+}
+.filter-row {
+  flex-wrap: wrap;
+}
+.filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.batch-actions-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.batch-actions-bar .btn-batch-start,
+.batch-actions-bar .btn-batch-stop {
+  flex: 1 1 180px;
+}

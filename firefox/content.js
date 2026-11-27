@@ -1848,13 +1848,18 @@ const NLM_LANG_PACKS = {
   // List render hone ke liye pehle neeche-upar scroll karo (virtualized list ke rows tabhi DOM mein aate hain).
   async function listStudioArtifacts() {
     const studio = findStudioContainer();
+    let scroller = studio;
     try {
-      if (studio && studio !== document.body && typeof studio.scrollTop === "number") studio.scrollTop = studio.scrollHeight;
+      if (studio && studio !== document.body) {
+        const inner = Array.from(studio.querySelectorAll("*")).find((el) => el.scrollHeight > el.clientHeight + 24 && isVisible(el));
+        if (inner) scroller = inner;
+      }
+      if (scroller && scroller !== document.body && typeof scroller.scrollTop === "number") scroller.scrollTop = scroller.scrollHeight;
       else window.scrollTo(0, document.body ? document.body.scrollHeight : 0);
     } catch (e) {}
     await pause(700);
     try {
-      if (studio && studio !== document.body && typeof studio.scrollTop === "number") studio.scrollTop = 0;
+      if (scroller && scroller !== document.body && typeof scroller.scrollTop === "number") scroller.scrollTop = 0;
       else window.scrollTo(0, 0);
     } catch (e) {}
     await pause(400);

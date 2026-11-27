@@ -481,8 +481,10 @@ window.deleteSingleCard = function (num) {
   if (confirm(`Kya aap Point ${num} (${title}) ko delete karna chahte hain?`)) {
     allShorts = allShorts.filter((s) => s.number !== num);
     completedPoints.delete(num);
+    downloadedPoints.delete(num);
     saveShortsData();
     saveCompletedState();
+    saveDownloadedState();
     renderAllShortsCards();
     updateGlobalStatus(`Point ${num} delete kar diya gaya hai.`, "ready");
   }
@@ -496,8 +498,10 @@ window.clearAllCards = function () {
   if (confirm("⚠️ KYA AAP SACH MEIN SAARI CARDS DELETE KARNA CHAHTE HAIN?\n\nSabhi prompts hat jayenge aur grid bilkul khali ho jayegi.")) {
     allShorts = [];
     completedPoints.clear();
+    downloadedPoints.clear();
     saveShortsData();
     saveCompletedState();
+    saveDownloadedState();
     renderAllShortsCards();
     updateGlobalStatus("🗑️ Saari cards delete kar di gayi hain. Grid khali hai.", "ready");
   }
@@ -2679,6 +2683,8 @@ async function initResumeState() {
 
   renderLog();
   renderResumeBanner();
+  if (nlmState.aiAuto && Array.isArray(nlmState.aiAuto.items)) syncDownloadedFromAiItems(nlmState.aiAuto.items);
+  if (nlmState.aiExisting && Array.isArray(nlmState.aiExisting.items)) syncDownloadedFromAiItems(nlmState.aiExisting.items);
   addLog("Dashboard ready.", "ready");
   renderAiAutoPanel();
   renderAiExistingPanel();
