@@ -1645,7 +1645,9 @@ const NLM_LANG_PACKS = {
     return { ok: true, prompt: text };
   }
   async function readPromptFromDetail() {
-    const btn = findClickableByWords(document, NLM_CONFIG.words.viewPrompt, null, 300);
+    const studio = findStudioContainer();
+    const btn = (studio && studio !== document.body ? findClickableByWords(studio, NLM_CONFIG.words.viewPrompt, null, 300) : null)
+      || findClickableByWords(document, NLM_CONFIG.words.viewPrompt, null, 300);
     if (!btn) return { ok: false, error: "'View prompt' button nahi mila — Short ka detail panel khula hai na?" };
     return readPromptFromDialogButton(btn);
   }
@@ -1741,6 +1743,7 @@ const NLM_LANG_PACKS = {
       if (opts.download !== false) {
         dl = await clickDownloadButton(opts.moreBtn || null);
         if (!dl.ok) return { success: false, error: dl.error, data: { oldTitle, newTitle, matchedNumber: match.number, renamed } };
+        await pause(1200);
       }
       return { success: true, action: "rename_download", message: `Rename + Download ho gaya: "${oldTitle}" -> "${newTitle}"${dl ? ` (Download: ${dl.location}).` : " (sirf rename)."}`, data: { oldTitle, newTitle, matchedNumber: match.number, renamed, downloadLocation: dl ? dl.location : null } };
     }
@@ -2066,7 +2069,6 @@ const NLM_LANG_PACKS = {
         return { outcome: "quota", quotaError: q.error || "" };
       }
       const key = item.type + "|" + item.title;
-      if (seenTitles.has(key)) continue;
       if (skipTitleKeys.has(key)) continue; // pichle run mein prompt match nahi hua tha — dobara mat kholo
       // Title pehle se kisi bheje gaye prompt ke title jaisa hai — kholo mat, done mano.
       const titleMatch = sent.find((p) => p.title && String(p.title).trim() && String(p.title).trim() === item.title);
@@ -2225,7 +2227,7 @@ const NLM_LANG_PACKS = {
         return { success: false, error: "Dashboard mein koi prompt nahi hai — pehle prompts paste karo, phir dobara chalao.", data: empty };
       }
       const prev = await loadAutoAiState();
-      const resume = prev && prev.mode === "existing" && (prev.status === "stopped" || prev.status === "quota") && Array.isArray(prev.items);
+      const resume = prev && prev.mode === "existing" && (prev.status === "stopped" || prev.status === "quota" || prev.status === "renaming") && Array.isArray(prev.items);
       let state;
       if (resume) {
         state = prev;

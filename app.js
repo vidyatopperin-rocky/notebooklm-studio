@@ -1566,6 +1566,10 @@ function startAiAutoPolling() {
 
 function finalizeAiAuto(res, source) {
   if (aiAutoSettled) return;
+  if (source === "command" && res && res.error && /message port closed|channel closed/i.test(res.error)) {
+    addLog("⏳ Extension port band hua, lekin NotebookLM mein kaam jaari hai — status poll chal raha hai...", "ready");
+    return;
+  }
   aiAutoSettled = true;
   aiAutoRunning = false;
   stopAiAutoPolling();
@@ -1669,6 +1673,10 @@ function startAiExistingPolling() {
 
 function finalizeAiExisting(res, source) {
   if (aiExistingSettled) return;
+  if (source === "command" && res && res.error && /message port closed|channel closed/i.test(res.error)) {
+    addLog("⏳ Extension port band hua, lekin NotebookLM mein kaam jaari hai — status poll chal raha hai...", "ready");
+    return;
+  }
   aiExistingSettled = true;
   aiExistingRunning = false;
   stopAiExistingPolling();
