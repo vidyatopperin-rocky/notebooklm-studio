@@ -42,12 +42,13 @@ async function sendRuntimeMessage(msg) {
   return { success: false, error: "Extension runtime not found in this browser" };
 }
 
-// v4.6.0: state/alarm requests are answered by the background worker (chrome.storage.local + alarms)
+// v4.6.0+: state/alarm/download requests are answered by the background worker (chrome.storage.local + alarms + downloads)
 const STATE_TYPES = {
   NLM_STATE_GET: "nlmState.get",
   NLM_STATE_PATCH: "nlmState.patch",
   NLM_ALARM_SET: "nlmAlarm.set",
-  NLM_ALARM_CLEAR: "nlmAlarm.clear"
+  NLM_ALARM_CLEAR: "nlmAlarm.clear",
+  NLM_DOWNLOAD_PREPARE: "nlmDownload.prepare"
 };
 
 function friendlyRuntimeError(res) {
@@ -68,7 +69,7 @@ async function handleIncomingCommand(payload) {
   }
 
   const outgoing = isStateReq
-    ? { action: STATE_TYPES[payload.type], patch: payload.patch, log: payload.log, backup: payload.backup, when: payload.when }
+    ? { action: STATE_TYPES[payload.type], patch: payload.patch, log: payload.log, backup: payload.backup, when: payload.when, folder: payload.folder, filename: payload.filename }
     : { action: "forwardToNotebookLM", payload: payload };
 
   const request = sendRuntimeMessage(outgoing).then(friendlyRuntimeError).catch((err) => ({ success: false, error: err.message || "Failed to communicate with extension" }));

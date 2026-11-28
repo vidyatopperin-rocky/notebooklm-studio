@@ -187,6 +187,114 @@ const STATE_KEY = "nlm_state";
 const BACKUP_KEY = "nlm_backup";
 const ALARM_NAME = "nlm-resume";
 let stateQueue = Promise.resolve();
+let pendingDownload = null;
+const requeuedDownloadUrls = new Set();
+const pendingFullMoveIds = new Map();
+
+function sanitizePathSegment(str) {
+  return String(str || "")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+|\.+$/g, "")
+    .trim()
+    .slice(0, 80);
+}
+
+function sanitizeFileName(str) {
+  return String(str || "NotebookLM_Output")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+|\.+$/g, "")
+    .trim()
+    .slice(0, 120) || "NotebookLM_Output";
+}
+
+function inferExtension(item) {
+  const fn = (item && item.filename) ? String(item.filename) : "";
+  const m = fn.match(/(\.[a-z0-9]{2,5})$/i);
+  if (m) return m[1];
+  const mime = ((item && item.mime) || "").toLowerCase();
+  if (mime.includes("mp4")) return ".mp4";
+  if (mime.includes("webm")) return ".webm";
+  if (mime.includes("wav")) return ".wav";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return ".mp3";
+  if (mime.includes("m4a") || mime.includes("aac")) return ".m4a";
+  if (mime.includes("ogg")) return ".ogg";
+  if (mime.includes("png")) return ".png";
+  if (mime.includes("pdf")) return ".pdf";
+  return "";
+}
+
+try {
+  const dl = extApi && extApi.downloads;
+  if (dl && dl.onDeterminingFilename) {
+    dl.onDeterminingFilename.addListener((item, suggest) => {
+      if (pendingDownload && (Date.now() - pendingDownload.setAt < 60000)) {
+        const ref = ((item.referrer || "") + " " + (item.url || "")).toLowerCase();
+        const isNlm = ref.includes("notebook") || ref.includes("googleusercontent") || ref.includes("blob:") || ref.includes("google.com");
+        if (isNlm) {
+          const pd = pendingDownload;
+          pendingDownload = null;
+          if (pd.fullPath) pendingFullMoveIds.set(item.id, pd.fullPath);
+          const ext = inferExtension(item);
+          const target = (pd.folder ? `${pd.folder}/` : "") + `${pd.filename}${ext}`;
+          try {
+            suggest({ filename: target, conflictAction: "uniquify" });
+            return;
+          } catch (e) {}
+        }
+      }
+      try { suggest(); } catch (e) {}
+    });
+  } else if (dl && dl.onCreated) {
+    dl.onCreated.addListener(async (item) => {
+      if (!pendingDownload || (Date.now() - pendingDownload.setAt >= 60000)) return;
+      if (!item || !item.url || item.url.startsWith("blob:")) return;
+      if (requeuedDownloadUrls.has(item.url)) {
+        requeuedDownloadUrls.delete(item.url);
+        return;
+      }
+      const ref = ((item.referrer || "") + " " + (item.url || "")).toLowerCase();
+      if (!(ref.includes("notebook") || ref.includes("googleusercontent") || ref.includes("google.com"))) return;
+      const pd = pendingDownload;
+      pendingDownload = null;
+      const ext = inferExtension(item);
+      const target = (pd.folder ? `${pd.folder}/` : "") + `${pd.filename}${ext}`;
+      try {
+        requeuedDownloadUrls.add(item.url);
+        setTimeout(() => requeuedDownloadUrls.delete(item.url), 15000);
+        await dl.cancel(item.id);
+        try { await dl.erase({ id: item.id }); } catch (e) {}
+        const newId = await dl.download({ url: item.url, filename: target, conflictAction: "uniquify" });
+        if (pd.fullPath && newId != null) pendingFullMoveIds.set(newId, pd.fullPath);
+      } catch (e) {
+        requeuedDownloadUrls.delete(item.url);
+      }
+    });
+  }
+  if (dl && dl.onChanged) {
+    dl.onChanged.addListener(async (delta) => {
+      if (!delta || !delta.state || delta.state.current !== "complete") return;
+      const destDir = pendingFullMoveIds.get(delta.id);
+      if (!destDir) return;
+      pendingFullMoveIds.delete(delta.id);
+      try {
+        const items = await new Promise((r) => {
+          const p = dl.search({ id: delta.id }, (res) => r(res || []));
+          if (p && p.then) p.then((res) => r(res || [])).catch(() => r([]));
+        });
+        const src = items && items[0] && items[0].filename;
+        if (src) {
+          fetch("http://127.0.0.1:8000/api/move-download", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ src, destDir })
+          }).catch(() => {});
+        }
+      } catch (e) {}
+    });
+  }
+} catch (e) {}
 
 function storageGet(keys) {
   return new Promise((resolve) => {
@@ -258,6 +366,14 @@ async function handleStateAction(message) {
       try { extApi.alarms.clear(ALARM_NAME); } catch (e) {}
       await patchState({ resumeAlarmAt: null });
       return { success: true };
+    }
+    if (message.action === "nlmDownload.prepare") {
+      const rawFolder = String(message.folder || "").trim();
+      const isFullWinPath = /^[a-zA-Z]:[\\/]/.test(rawFolder);
+      const folder = isFullWinPath ? "NotebookLM_MoveQueue" : sanitizePathSegment(rawFolder);
+      const filename = sanitizeFileName(message.filename || "NotebookLM_Output");
+      pendingDownload = { folder, filename, fullPath: isFullWinPath ? rawFolder : "", setAt: Date.now() };
+      return { success: true, folder, filename, fullPath: pendingDownload.fullPath };
     }
   } catch (e) {
     return { success: false, error: (e && e.message) || String(e) };
@@ -359,7 +475,7 @@ if (runtimeApi && runtimeApi.runtime && runtimeApi.runtime.onMessage) {
       }
       return true;
     }
-    if (message && typeof message.action === "string" && (message.action.indexOf("nlmState.") === 0 || message.action.indexOf("nlmAlarm.") === 0)) {
+    if (message && typeof message.action === "string" && (message.action.indexOf("nlmState.") === 0 || message.action.indexOf("nlmAlarm.") === 0 || message.action.indexOf("nlmDownload.") === 0)) {
       const p = handleStateAction(message).then((r) => { try { sendResponse(r); } catch (e) {} return r; });
       if (typeof browser !== "undefined" && browser.runtime) return p;
       return true;

@@ -1743,6 +1743,14 @@ const NLM_LANG_PACKS = {
       }
       let dl = null;
       if (opts.download !== false) {
+        try {
+          const rt = (typeof browser !== "undefined" && browser.runtime) ? browser.runtime : (typeof chrome !== "undefined" ? chrome.runtime : null);
+          if (rt && rt.sendMessage) {
+            const p = rt.sendMessage({ action: "nlmDownload.prepare", folder: opts.downloadFolder || "", filename: newTitle });
+            if (p && p.then) await p.catch(() => {});
+            else await pause(120);
+          }
+        } catch (e) {}
         dl = await clickDownloadButton(opts.moreBtn || null);
         if (!dl.ok) return { success: false, error: dl.error, data: { oldTitle, newTitle, matchedNumber: match.number, renamed } };
         await pause(1200);
@@ -2127,7 +2135,7 @@ const NLM_LANG_PACKS = {
           continue;
         }
         if (cls.matchedNumber !== undefined && cls.matchedNumber !== null) doneNumbers.add(cls.matchedNumber);
-        const core = await renameDownloadCore(sent, { download: opts.download !== false, preReadPrompt: pr.prompt, moreBtn: item.moreBtn || null });
+        const core = await renameDownloadCore(sent, { download: opts.download !== false, downloadFolder: opts.downloadFolder || "", preReadPrompt: pr.prompt, moreBtn: item.moreBtn || null });
         if (core.success) {
           state.counts.renamed++;
           if (core.data && core.data.downloadLocation) state.counts.downloaded++;
@@ -2193,7 +2201,7 @@ const NLM_LANG_PACKS = {
         return { success: false, error: "2 ghante wait karne par bhi generation khatam nahi hui (" + wait.polls + " baar check kiya) — baad mein dobara chalao, rename pass usi batch par dobara chalega.", data: state };
       }
       await save({ status: "renaming" });
-      const pass = await autoAiRenamePass(sent, { download: opts.download !== false, batchTypes: batchTypes, resumeKeys: null }, state, save, record);
+      const pass = await autoAiRenamePass(sent, { download: opts.download !== false, downloadFolder: opts.downloadFolder || "", batchTypes: batchTypes, resumeKeys: null }, state, save, record);
       if (pass.outcome === "stopped") {
         await save({ status: "stopped" });
         return { success: false, error: "AI Auto user ne roka.", data: state };
@@ -2254,7 +2262,7 @@ const NLM_LANG_PACKS = {
       const save = async (patch) => { Object.assign(state, patch, { updatedAt: Date.now() }); await saveAutoAiState(state); return state; };
       const record = (entry) => { state.items.push(entry); };
       await save({ status: "renaming" });
-      const pass = await autoAiRenamePass(all, { download: opts.download !== false, batchTypes: null, resumeKeys: null }, state, save, record);
+      const pass = await autoAiRenamePass(all, { download: opts.download !== false, downloadFolder: opts.downloadFolder || "", batchTypes: null, resumeKeys: null }, state, save, record);
       if (pass.outcome === "stopped") {
         await save({ status: "stopped" });
         return { success: false, error: "Bane hue items wala pass user ne roka.", data: state };
@@ -2406,16 +2414,16 @@ const NLM_LANG_PACKS = {
             } else if (msg.mode === "set_language") {
               res = await setLanguageFlow(msg.names || [msg.value || msg.topic || ""]);
             } else if (msg.mode === "rename_download") {
-              res = await renameDownloadFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { download: true });
+              res = await renameDownloadFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { download: true, downloadFolder: msg.downloadFolder || "" });
             } else if (msg.mode === "rename_only") {
               res = await renameDownloadFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { download: false });
             } else if (msg.mode === "auto_ai") {
               // v7.10.0: poora AI Auto pass (wait + rename/download). Ghanton chal sakta hai — dashboard
               // status poll karta hai, aur reload hone par bhi progress chrome.storage.local mein safe hai.
-              res = await autoAiFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { batchStart: msg.batchStart, batchEnd: msg.batchEnd, sentNumbers: msg.sentNumbers, download: msg.download !== false });
+              res = await autoAiFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { batchStart: msg.batchStart, batchEnd: msg.batchEnd, sentNumbers: msg.sentNumbers, download: msg.download !== false, downloadFolder: msg.downloadFolder || "" });
             } else if (msg.mode === "auto_ai_existing") {
               // v7.10.1: sirf pehle se bane hue items — na bhejna, na wait; seedha rename/download pass.
-              res = await autoAiExistingFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { download: msg.download !== false });
+              res = await autoAiExistingFlow(Array.isArray(msg.prompts) ? msg.prompts : [], { download: msg.download !== false, downloadFolder: msg.downloadFolder || "" });
             } else if (msg.mode === "auto_ai_status") {
               const st = await loadAutoAiState();
               res = { success: true, action: "auto_ai_status", data: Object.assign({}, st || {}, { isGenerating: isGeneratingActive(), isBusy: isBusy, autoAiRunning: autoAiRunning }) };

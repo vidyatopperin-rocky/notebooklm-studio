@@ -185,6 +185,11 @@
             <button id="btn-ai-existing-start" class="btn-batch-start"><span class="btn-batch-icon">📼🏷️</span><span>Bane hue Rename + Download</span></button>
             <button id="btn-ai-auto-stop" class="btn-batch-stop" disabled><span class="btn-batch-icon">⏹</span><span>Stop</span></button>
           </div>
+          <div class="dl-folder-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 4px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);font-size:13px;">
+            <label for="dl-folder-name">📁 <b>Download Folder:</b></label>
+            <input type="text" id="dl-folder-name" class="text-input" style="flex:1;min-width:190px;max-width:340px;" placeholder="e.g. Physics_Ch1 ya G:\Videos\Physics" />
+            <span id="dl-folder-preview" style="font-size:12px;color:#94a3b8;"></span>
+          </div>
           <div class="batch-options-bar"><span id="ai-existing-status" class="batch-option-hint"></span></div>
           <div class="batch-options-bar"><span id="ai-auto-status" class="batch-option-hint">Ready.</span></div>
         </div>

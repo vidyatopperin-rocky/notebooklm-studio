@@ -1554,6 +1554,20 @@ function sendToBridge(payload, timeoutMs = 35000) {
 }
 
 
+function getDownloadFolderName() {
+  const inp = document.getElementById("dl-folder-name");
+  const raw = ((inp ? inp.value : localStorage.getItem("nlm_download_folder")) || "").trim();
+  if (!raw) return "NotebookLM_Outputs";
+  if (/^[a-zA-Z]:[\\/]/.test(raw)) return raw;
+  return raw.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").replace(/\s+/g, " ").trim() || "NotebookLM_Outputs";
+}
+function updateDownloadFolderPreview() {
+  const prev = document.getElementById("dl-folder-preview");
+  if (!prev) return;
+  const f = getDownloadFolderName();
+  prev.textContent = /^[a-zA-Z]:[\\/]/.test(f) ? `→ ${f} (server.py on hona chahiye)` : `→ Downloads/${f}/`;
+}
+
 // v7.9.0: Rename + Download — khula hua Short: View prompt padho, dashboard prompts se match karo,
 // Artifact title mein matched title likho, phir Download dabao (header, nahi to 3-dot menu).
 let renameDownloadRunning = false;
@@ -1564,7 +1578,7 @@ window.renameDownloadCurrentShort = async function (download) {
   renameDownloadRunning = true;
   updateGlobalStatus("🏷️ Khule Short ka prompt padh rahe hain, dashboard prompts se match kar rahe hain...", "ready");
   const prompts = allShorts.filter((s) => s && s.prompt).map((s) => ({ number: s.number, title: s.title, prompt: String(s.prompt).slice(0, 3000) }));
-  const res = await sendToBridge({ type: "NLM_COMMAND", mode: download === false ? "rename_only" : "rename_download", prompts: prompts, focusTab: true }, COMMAND_TIMEOUT_MS);
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: download === false ? "rename_only" : "rename_download", prompts: prompts, downloadFolder: getDownloadFolderName(), focusTab: true }, COMMAND_TIMEOUT_MS);
   renameDownloadRunning = false;
   if (res && res.success) {
     const d = res.data || {};
@@ -1603,6 +1617,15 @@ function setupAiAutoControls() {
   document.getElementById("btn-ai-auto-start")?.addEventListener("click", () => window.startAiAutoFlow());
   document.getElementById("btn-ai-auto-stop")?.addEventListener("click", () => window.stopAiAutoFlow());
   document.getElementById("btn-ai-existing-start")?.addEventListener("click", () => window.startAiExistingFlow());
+  const dlInp = document.getElementById("dl-folder-name");
+  if (dlInp) {
+    dlInp.value = localStorage.getItem("nlm_download_folder") || "";
+    updateDownloadFolderPreview();
+    dlInp.addEventListener("input", () => {
+      try { localStorage.setItem("nlm_download_folder", dlInp.value); } catch (e) {}
+      updateDownloadFolderPreview();
+    });
+  }
 }
 
 function renderAiAutoPanel() {
@@ -1824,7 +1847,7 @@ window.startAiExistingFlow = async function () {
   updateGlobalStatus("🤖 Bane hue items ka rename + download chal raha hai...", "ready");
   addLog("🤖 Bane hue items: " + items.length + " prompts se match kar rahe hain — kuch bheja nahi jayega.", "ready");
   startAiExistingPolling();
-  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_existing", prompts: items, download: true, focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai_existing", prompts: items, download: true, downloadFolder: getDownloadFolderName(), focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
   finalizeAiExisting(res, "command");
 };
 
@@ -1875,7 +1898,7 @@ window.startAiAutoFlow = async function (opts) {
     persistState({ aiAuto: prev });
     renderAiAutoPanel();
     startAiAutoPolling();
-    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai", prompts: items, batchStart: prev.batchStart, batchEnd: prev.batchEnd, sentNumbers: prev.sentNumbers.slice(), download: true, focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
+    const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai", prompts: items, batchStart: prev.batchStart, batchEnd: prev.batchEnd, sentNumbers: prev.sentNumbers.slice(), download: true, downloadFolder: getDownloadFolderName(), focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
     finalizeAiAuto(res, "command");
     return;
   }
@@ -1937,7 +1960,7 @@ window.startAiAutoFlow = async function (opts) {
   persistState({ aiAuto: nlmState.aiAuto });
   renderAiAutoPanel();
   startAiAutoPolling();
-  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai", prompts: sentItems, batchStart: nlmState.aiAuto.batchStart, batchEnd: nlmState.aiAuto.batchEnd, sentNumbers: sentNumbers.slice(), download: true, focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
+  const res = await sendToBridge({ type: "NLM_COMMAND", mode: "auto_ai", prompts: sentItems, batchStart: nlmState.aiAuto.batchStart, batchEnd: nlmState.aiAuto.batchEnd, sentNumbers: sentNumbers.slice(), download: true, downloadFolder: getDownloadFolderName(), focusTab: true }, AI_AUTO_COMMAND_TIMEOUT_MS);
   finalizeAiAuto(res, "command");
 };
 
